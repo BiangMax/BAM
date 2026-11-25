@@ -17,7 +17,7 @@
 | Phase 4（按需） | ASP.NET Core 10 Kestrel | 用 FrameworkReference 引入，启用 MAA 远控时才启动服务。框架依赖发布需同时部署相应共享运行时，当前宿主未列出该运行时。HTTP 形状已用标准库验证，Kestrel 尚未实机验证。 |
 | 有证据后 | FlaUI.UIA3、SQLite | 暂缓。FlaUI（MIT）仅在有可复现且稳定的 AutomationId 时评估；有历史查询需求后评估 SQLite 引擎及 .NET 提供程序、原生二进制的单独许可证和部署成本。 |
 
-Phase 1 已验收 DI 与测试依赖的锁定还原、构建、测试和 win-x64 发布。后续依赖仍按表中阶段引入并验证。Directory.Packages.props 集中固定版本，CI 使用锁定模式还原。正式发布时清点传递依赖、图标字形和字体的许可及通知要求。第三方应用保持独立安装。BAM 的许可证由项目所有者决定。
+Phase 2 已引入 WPF-UI 4.3.0、其传递依赖 WPF-UI.Abstractions 4.3.0 和 CommunityToolkit.Mvvm 8.4.2。组合方式和本机验收记录见 [Phase 2 报告](PHASE2_REPORT.md)。后续依赖按表中阶段引入。Directory.Packages.props 集中固定版本，CI 使用锁定模式还原。正式发布时清点传递依赖、图标字形和字体的许可及通知要求。第三方应用保持独立安装。BAM 的许可证由项目所有者决定。
 
 [WPF UI 包与许可证](https://www.nuget.org/packages/WPF-UI/4.3.0) · [MVVM Toolkit](https://www.nuget.org/packages/CommunityToolkit.Mvvm/8.4.2) · [Microsoft DI](https://www.nuget.org/packages/Microsoft.Extensions.DependencyInjection/10.0.0) · [xUnit](https://github.com/xunit/xunit) · [Serilog 文件输出](https://github.com/serilog/serilog-sinks-file) · [Kestrel 绑定](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/endpoints?view=aspnetcore-10.0)
 

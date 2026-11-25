@@ -1,0 +1,115 @@
+<UserControl x:Class="BAM.Desktop.Views.ScriptCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:local="clr-namespace:BAM.Desktop.Controls"
+             Focusable="False" IsTabStop="False">
+    <Border Style="{StaticResource Bam.DensePanel}">
+        <StackPanel>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Script.Version}" Style="{StaticResource Bam.Muted}"
+                           VerticalAlignment="Center" ToolTip="软件版本（样例）" Margin="{StaticResource Bam.Gap.Small}"/>
+                <ContentControl Content="{Binding Script}" ContentTemplate="{StaticResource Bam.ScriptIdentity}"
+                                Focusable="False" IsTabStop="False"/>
+            </DockPanel>
+
+            <Grid Margin="{StaticResource Bam.Before.Medium}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="4*"/>
+                    <ColumnDefinition Width="5*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="软件进程" Style="{StaticResource Bam.Muted}"/>
+                    <local:ToneBadge Text="{Binding Script.ProcessLabel}" Tone="{Binding Script.ProcessTone}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="游戏任务" Style="{StaticResource Bam.Muted}"/>
+                    <local:ToneBadge Text="{Binding Script.TaskLabel}" Tone="{Binding Script.TaskTone}"/>
+                </StackPanel>
+            </Grid>
+
+            <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Bam.PanelEdge}"
+                    Margin="{StaticResource Bam.Before.Medium}" Padding="0,4,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <UniformGrid Columns="3">
+                        <UniformGrid.Style>
+                            <Style TargetType="UniformGrid">
+                                <Setter Property="Grid.ColumnSpan" Value="2"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="True">
+                                        <Setter Property="Grid.ColumnSpan" Value="1"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </UniformGrid.Style>
+                        <StackPanel>
+                            <TextBlock Text="CPU" Style="{StaticResource Bam.Muted}"/>
+                            <TextBlock Text="{Binding Cpu}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding CpuHint}"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="工作集" Style="{StaticResource Bam.Muted}"/>
+                            <TextBlock Text="{Binding Memory}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding MemoryHint}"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="运行时长" Style="{StaticResource Bam.Muted}"/>
+                            <TextBlock Text="{Binding Uptime}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding UptimeHint}"/>
+                        </StackPanel>
+                    </UniformGrid>
+
+                    <Grid>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Grid.Row" Value="1"/>
+                                <Setter Property="Grid.ColumnSpan" Value="2"/>
+                                <Setter Property="Margin" Value="{StaticResource Bam.Before.Small}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="True">
+                                        <Setter Property="Grid.Row" Value="0"/>
+                                        <Setter Property="Grid.Column" Value="1"/>
+                                        <Setter Property="Grid.ColumnSpan" Value="1"/>
+                                        <Setter Property="Margin" Value="{StaticResource Bam.Gap.Left}"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Style="{StaticResource Bam.PrimaryButton}" Content="{Binding Script.PrimaryAction}" IsEnabled="False"
+                                MinHeight="{StaticResource Bam.IconButtonSize}"
+                                ToolTip="{Binding Script.OperationHint}" AutomationProperties.HelpText="{Binding Script.OperationHint}"/>
+                        <local:MenuButton Grid.Column="1" Style="{StaticResource {x:Type Button}}" Width="{StaticResource Bam.IconButtonSize}" MinHeight="{StaticResource Bam.IconButtonSize}"
+                                          Padding="0" Margin="{StaticResource Bam.Gap.Small}" ToolTip="更多操作"
+                                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                          AutomationProperties.Name="更多脚本操作">
+                            <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="18"/>
+                            <local:MenuButton.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="查看详情"
+                                              Command="{Binding PlacementTarget.Tag.OpenScriptDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <MenuItem Header="查看日志"
+                                              Command="{Binding PlacementTarget.Tag.OpenScriptLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <Separator/>
+                                    <MenuItem Header="正常关闭 · 待接入" IsEnabled="False"/>
+                                    <MenuItem Header="重启软件 · 待接入" IsEnabled="False"/>
+                                </ContextMenu>
+                            </local:MenuButton.ContextMenu>
+                        </local:MenuButton>
+                    </Grid>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Border>
+</UserControl>

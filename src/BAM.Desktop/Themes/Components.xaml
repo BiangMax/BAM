@@ -1,0 +1,145 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                    xmlns:local="clr-namespace:BAM.Desktop.Controls">
+    <Style TargetType="local:ToneBadge">
+        <Setter Property="AutomationProperties.Name" Value="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource Bam.TextSecondary}"/>
+        <Setter Property="Background" Value="{DynamicResource Bam.SurfaceHover}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="local:ToneBadge">
+                    <Border Background="{TemplateBinding Background}" CornerRadius="{StaticResource Bam.Corner.Small}"
+                            Padding="{StaticResource Bam.StatusPadding}">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon x:Name="StatusIcon" Symbol="Circle16" FontSize="12"
+                                           Foreground="{TemplateBinding Foreground}"/>
+                            <TextBlock Text="{Binding Text, RelativeSource={RelativeSource TemplatedParent}}" Margin="{StaticResource Bam.InlineGap}"
+                                       Style="{StaticResource Bam.Caption}" Foreground="{TemplateBinding Foreground}"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Tone" Value="Accent">
+                            <Setter Property="Foreground" Value="{DynamicResource Bam.PrimaryLight}"/>
+                            <Setter Property="Background" Value="{DynamicResource Bam.AccentSurface}"/>
+                            <Setter TargetName="StatusIcon" Property="Symbol" Value="Info16"/>
+                        </Trigger>
+                        <Trigger Property="Tone" Value="Success">
+                            <Setter Property="Foreground" Value="{DynamicResource Bam.Success}"/>
+                            <Setter Property="Background" Value="{DynamicResource Bam.SuccessSurface}"/>
+                            <Setter TargetName="StatusIcon" Property="Symbol" Value="Play16"/>
+                        </Trigger>
+                        <Trigger Property="Tone" Value="Warning">
+                            <Setter Property="Foreground" Value="{DynamicResource Bam.Warning}"/>
+                            <Setter Property="Background" Value="{DynamicResource Bam.WarningSurface}"/>
+                            <Setter TargetName="StatusIcon" Property="Symbol" Value="Warning16"/>
+                        </Trigger>
+                        <Trigger Property="Tone" Value="Danger">
+                            <Setter Property="Foreground" Value="{DynamicResource Bam.Danger}"/>
+                            <Setter Property="Background" Value="{DynamicResource Bam.DangerSurface}"/>
+                            <Setter TargetName="StatusIcon" Property="Symbol" Value="ErrorCircle16"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="local:EmptyState">
+        <Setter Property="AutomationProperties.Name" Value="{Binding Title, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="AutomationProperties.HelpText" Value="{Binding Description, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Bam.TextPrimary}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="local:EmptyState">
+                    <Grid Margin="{StaticResource Bam.PanelPadding}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Border Style="{StaticResource Bam.IconTile}" Margin="{StaticResource Bam.After.Medium}">
+                                <ui:SymbolIcon Style="{StaticResource Bam.AccentIcon}" Symbol="{TemplateBinding Symbol}"/>
+                            </Border>
+                            <TextBlock Style="{StaticResource Bam.CardTitle}" Text="{Binding Title, RelativeSource={RelativeSource TemplatedParent}}"
+                                       TextWrapping="Wrap" TextAlignment="Center"/>
+                            <TextBlock Style="{StaticResource Bam.Caption}" Text="{Binding Description, RelativeSource={RelativeSource TemplatedParent}}"
+                                       TextWrapping="Wrap" TextAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="local:MetricTile">
+        <Setter Property="AutomationProperties.HelpText" Value="{Binding Detail, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="AutomationProperties.Name">
+            <Setter.Value>
+                <MultiBinding StringFormat="{}{0}，{1}">
+                    <Binding Path="Label" RelativeSource="{RelativeSource Self}"/>
+                    <Binding Path="Value" RelativeSource="{RelativeSource Self}"/>
+                </MultiBinding>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Foreground" Value="{DynamicResource Bam.TextPrimary}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="local:MetricTile">
+                    <Border Style="{StaticResource Bam.Panel}" Padding="{StaticResource Bam.MetricPadding}">
+                        <StackPanel>
+                            <DockPanel>
+                                <ui:SymbolIcon Symbol="{TemplateBinding Symbol}" FontSize="17" Margin="{StaticResource Bam.Gap.SmallRight}"
+                                               Foreground="{DynamicResource Bam.PrimaryLight}"/>
+                                <TextBlock Text="{Binding Label, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.Caption}"/>
+                            </DockPanel>
+                            <TextBlock x:Name="MetricNumber" Text="{Binding Value, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.MetricValue}"/>
+                            <TextBlock Text="{Binding Detail, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.Muted}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="True">
+                            <Setter TargetName="MetricNumber" Property="FontSize" Value="24"/>
+                            <Setter TargetName="MetricNumber" Property="LineHeight" Value="29"/>
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <DataTemplate x:Key="Bam.ScriptIdentity">
+        <DockPanel LastChildFill="True">
+            <Border DockPanel.Dock="Left" Margin="{StaticResource Bam.Gap.Right}">
+                <Border.Style>
+                    <Style TargetType="Border" BasedOn="{StaticResource Bam.IconTile}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IdentityTone}" Value="Success">
+                                <Setter Property="Background" Value="{DynamicResource Bam.SuccessSurface}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IdentityTone}" Value="Warning">
+                                <Setter Property="Background" Value="{DynamicResource Bam.WarningSurface}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <ui:SymbolIcon Symbol="{Binding Icon}">
+                    <ui:SymbolIcon.Style>
+                        <Style TargetType="ui:SymbolIcon" BasedOn="{StaticResource Bam.AccentIcon}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IdentityTone}" Value="Success">
+                                    <Setter Property="Foreground" Value="{DynamicResource Bam.Success}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IdentityTone}" Value="Warning">
+                                    <Setter Property="Foreground" Value="{DynamicResource Bam.Warning}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ui:SymbolIcon.Style>
+                </ui:SymbolIcon>
+            </Border>
+            <StackPanel>
+                <TextBlock Style="{StaticResource Bam.CardTitle}" Text="{Binding Name}" TextWrapping="Wrap"/>
+                <TextBlock Style="{StaticResource Bam.Caption}" Text="{Binding Game}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </DockPanel>
+    </DataTemplate>
+</ResourceDictionary>

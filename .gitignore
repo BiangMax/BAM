@@ -19,6 +19,9 @@ updateInfo.txt
 bin/
 obj/
 artifacts/
+screenshots/
+captures/
+test-results/
 TestResults/
 .vs/
 .cache/

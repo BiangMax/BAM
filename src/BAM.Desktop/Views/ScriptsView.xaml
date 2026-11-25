@@ -1,0 +1,139 @@
+<UserControl x:Class="BAM.Desktop.Views.ScriptsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:local="clr-namespace:BAM.Desktop.Controls"
+             Focusable="False" IsTabStop="False">
+    <Grid Style="{StaticResource Bam.PageGrid}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <DockPanel Margin="{StaticResource Bam.After.Block}">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button IsEnabled="False" ToolTip="{Binding DiscoveryHint}" AutomationProperties.HelpText="{Binding DiscoveryHint}">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Search24" FontSize="16" Margin="{StaticResource Bam.Gap.Right}"
+                                       Foreground="{DynamicResource Bam.TextMuted}"/>
+                        <TextBlock Text="自动检测" Foreground="{DynamicResource Bam.TextMuted}"/>
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Bam.PrimaryButton}" Content="手动添加" IsEnabled="False"
+                        Margin="{StaticResource Bam.Gap.Small}" ToolTip="{Binding DiscoveryHint}"
+                        AutomationProperties.HelpText="{Binding DiscoveryHint}"/>
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="脚本管理" Style="{StaticResource Bam.PageTitle}" AutomationProperties.HeadingLevel="Level1"/>
+                <TextBlock Text="查看软件安装信息与管理能力" Style="{StaticResource Bam.Caption}"/>
+            </StackPanel>
+        </DockPanel>
+
+        <Grid Grid.Row="1" Visibility="{Binding HasItems, Converter={StaticResource Bam.VisibleWhenTrue}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" MinWidth="208" MaxWidth="280"/>
+                <ColumnDefinition Width="{StaticResource Bam.ColumnGutter}"/>
+                <ColumnDefinition Width="4*" MinWidth="290"/>
+            </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource Bam.Panel}" Padding="0" VerticalAlignment="Top">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="{StaticResource Bam.DensePanelPadding}">
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding CountLabel}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
+                        <TextBlock Text="已管理软件" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                    </DockPanel>
+                    <ListBox Style="{StaticResource Bam.DataList}" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
+                             AutomationProperties.Name="已管理软件" AutomationProperties.AutomationId="ManagedScripts"
+                             Margin="4,0,4,4" ItemTemplate="{StaticResource Bam.ScriptIdentity}">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleName}"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="FocusVisualStyle" Value="{StaticResource Bam.FocusVisual}"/>
+                                <Setter Property="Padding" Value="{StaticResource Bam.RowPadding}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Selection" Background="Transparent" Padding="{TemplateBinding Padding}"
+                                                    CornerRadius="{StaticResource Bam.Corner.Control}" BorderThickness="1" BorderBrush="Transparent">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Selection" Property="Background" Value="{DynamicResource Bam.SurfaceHover}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Selection" Property="Background" Value="{DynamicResource Bam.AccentSurface}"/>
+                                                    <Setter TargetName="Selection" Property="BorderBrush" Value="{DynamicResource Bam.Primary}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource Bam.Panel}" Padding="0" VerticalAlignment="Top">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="{StaticResource Bam.PanelPadding}" DataContext="{Binding Selected}">
+                        <DockPanel Margin="{StaticResource Bam.After.Section}">
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Version}" Style="{StaticResource Bam.MonoText}" VerticalAlignment="Center" Margin="{StaticResource Bam.Gap.Small}"/>
+                            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource Bam.ScriptIdentity}"
+                                            Focusable="False" IsTabStop="False"/>
+                        </DockPanel>
+                        <Border Style="{StaticResource Bam.SettingsRow}" Margin="{StaticResource Bam.After.Small}">
+                            <TextBlock Text="安装信息" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                        </Border>
+                        <Grid Margin="{StaticResource Bam.After.Block}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="安装路径" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Grid.Row="1" Text="工作目录" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Grid.Row="2" Text="启动参数" Style="{StaticResource Bam.Muted}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding InstallPath}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
+                                       Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Grid.Column="1" Grid.Row="1" Text="{Binding WorkingDirectory}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
+                                       Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding Arguments}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
+                        </Grid>
+                        <Border Style="{StaticResource Bam.SettingsRow}">
+                            <TextBlock Text="管理能力" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                        </Border>
+                        <TextBlock Text="{Binding Capabilities}" Foreground="{DynamicResource Bam.TextSecondary}" TextWrapping="Wrap"
+                                   Margin="{StaticResource Bam.After.Block}"/>
+                        <Border Style="{StaticResource Bam.SettingsRow}">
+                            <TextBlock Text="管理操作" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                        </Border>
+                        <WrapPanel>
+                            <Button Content="{Binding PrimaryAction}" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
+                            <Button Content="正常关闭" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
+                            <Button Content="重启软件" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                                    AutomationProperties.HelpText="{Binding OperationHint}"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding OperationHint}" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.Before.Medium}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+        <Border Grid.Row="1" VerticalAlignment="Top">
+            <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource Bam.Panel}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasItems}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <local:EmptyState Title="尚未添加脚本" Description="安装发现与手动定位将在通用管理接入后开放。" Symbol="Apps24"/>
+        </Border>
+    </Grid>
+</UserControl>

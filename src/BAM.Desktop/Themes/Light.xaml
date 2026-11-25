@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <SolidColorBrush x:Key="Bam.Background" Color="#F3F5F8"/>
+    <SolidColorBrush x:Key="Bam.Surface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Bam.SurfaceHover" Color="#EDF2F9"/>
+    <SolidColorBrush x:Key="Bam.Border" Color="#D5DCE6"/>
+    <SolidColorBrush x:Key="Bam.PanelEdge" Color="#E2E7EF"/>
+    <SolidColorBrush x:Key="Bam.ScrollThumb" Color="#8490A1"/>
+    <SolidColorBrush x:Key="Bam.Primary" Color="#235EC2"/>
+    <SolidColorBrush x:Key="Bam.PrimaryLight" Color="#1D55AB"/>
+    <SolidColorBrush x:Key="Bam.ActionFill" Color="#235EC2"/>
+    <SolidColorBrush x:Key="Bam.OnAction" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Bam.Success" Color="#137150"/>
+    <SolidColorBrush x:Key="Bam.Warning" Color="#815410"/>
+    <SolidColorBrush x:Key="Bam.Danger" Color="#A63737"/>
+    <SolidColorBrush x:Key="Bam.TextPrimary" Color="#172130"/>
+    <SolidColorBrush x:Key="Bam.TextSecondary" Color="#425063"/>
+    <SolidColorBrush x:Key="Bam.TextMuted" Color="#566477"/>
+    <SolidColorBrush x:Key="Bam.Rail" Color="#EBEFF5"/>
+    <SolidColorBrush x:Key="Bam.Inset" Color="#F4F7FB"/>
+    <SolidColorBrush x:Key="Bam.AccentSurface" Color="#E5EEFC"/>
+    <SolidColorBrush x:Key="Bam.SuccessSurface" Color="#E5F2EC"/>
+    <SolidColorBrush x:Key="Bam.WarningSurface" Color="#F8EFE1"/>
+    <SolidColorBrush x:Key="Bam.DangerSurface" Color="#FAEBEB"/>
+    <SolidColorBrush x:Key="Bam.Memory" Color="#6545AA"/>
+    <SolidColorBrush x:Key="Bam.ChartGrid" Color="#DCE3ED"/>
+    <DropShadowEffect x:Key="Bam.PopupShadow" Color="#172130" BlurRadius="12" ShadowDepth="3" Opacity="0.16"/>
+</ResourceDictionary>
