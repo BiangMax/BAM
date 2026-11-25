@@ -8,7 +8,7 @@
         <StackPanel>
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right" Text="{Binding Script.Version}" Style="{StaticResource Bam.Muted}"
-                           VerticalAlignment="Center" ToolTip="软件版本（样例）" Margin="{StaticResource Bam.Gap.Small}"/>
+                           VerticalAlignment="Center" ToolTip="{Binding Script.VersionDetail}" Margin="{StaticResource Bam.Gap.Small}"/>
                 <ContentControl Content="{Binding Script}" ContentTemplate="{StaticResource Bam.ScriptIdentity}"
                                 Focusable="False" IsTabStop="False"/>
             </DockPanel>
@@ -20,7 +20,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="软件进程" Style="{StaticResource Bam.Muted}"/>
-                    <local:ToneBadge Text="{Binding Script.ProcessLabel}" Tone="{Binding Script.ProcessTone}"/>
+                    <local:ToneBadge Text="{Binding Script.ProcessLabel}" Tone="{Binding Script.ProcessTone}" ToolTip="{Binding Script.OperationHint}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="游戏任务" Style="{StaticResource Bam.Muted}"/>
@@ -85,7 +85,9 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button Style="{StaticResource Bam.PrimaryButton}" Content="{Binding Script.PrimaryAction}" IsEnabled="False"
+                        <Button Style="{StaticResource Bam.PrimaryButton}" Content="{Binding Script.PrimaryAction}" IsEnabled="{Binding Script.CanPrimary}"
+                                Command="{Binding DataContext.PrimaryCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                CommandParameter="{Binding Script}" ToolTipService.ShowOnDisabled="True"
                                 MinHeight="{StaticResource Bam.IconButtonSize}"
                                 ToolTip="{Binding Script.OperationHint}" AutomationProperties.HelpText="{Binding Script.OperationHint}"/>
                         <local:MenuButton Grid.Column="1" Style="{StaticResource {x:Type Button}}" Width="{StaticResource Bam.IconButtonSize}" MinHeight="{StaticResource Bam.IconButtonSize}"
@@ -102,8 +104,15 @@
                                               Command="{Binding PlacementTarget.Tag.OpenScriptLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     <Separator/>
-                                    <MenuItem Header="正常关闭 · 待接入" IsEnabled="False"/>
-                                    <MenuItem Header="重启软件 · 待接入" IsEnabled="False"/>
+                                    <MenuItem Header="正常关闭" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanClose, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              Command="{Binding PlacementTarget.Tag.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <MenuItem Header="重启软件" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanRestart, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              Command="{Binding PlacementTarget.Tag.RestartScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <MenuItem Header="强制结束…" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanForce, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              Command="{Binding PlacementTarget.Tag.ForceScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 </ContextMenu>
                             </local:MenuButton.ContextMenu>
                         </local:MenuButton>

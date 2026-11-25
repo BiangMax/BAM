@@ -1,4 +1,5 @@
 using BAM.Core;
+using System.Windows.Media;
 using Wpf.Ui.Controls;
 
 namespace BAM.Desktop.Data;
@@ -14,16 +15,6 @@ internal interface IDesktopData
     IReadOnlyList<ResourceFrame> ReadRecentResources(DateTimeOffset time) => [];
 }
 
-internal sealed class EmptyDesktopData : IDesktopData
-{
-    public bool IsDemo => false;
-    public IReadOnlyList<ScriptItem> Scripts => [];
-    public IReadOnlyList<LogEntry> Logs => [];
-    public bool HasResourceSource => false;
-    public string? GetLogSourceNotice(string source) => null;
-    public ResourceFrame? ReadResources(DateTimeOffset time) => null;
-}
-
 internal enum Tone { Neutral, Accent, Success, Warning, Danger }
 
 internal sealed record ScriptItem(
@@ -31,6 +22,28 @@ internal sealed record ScriptItem(
     ProcessState Process, GameTaskState Task,
     string InstallPath, string WorkingDirectory, string Arguments, string Capabilities)
 {
+    public ProgramInstallation? Installation { get; init; }
+    public ImageSource? ActualIcon { get; init; }
+    public string? VersionDetail { get; init; }
+    public string? Issue { get; init; }
+    public ProcessIdentity? Identity { get; init; }
+    public nint WindowHandle { get; init; }
+    public bool CanStart { get; init; }
+    public bool CanActivate { get; init; }
+    public bool CanClose { get; init; }
+    public bool CanRestart { get; init; }
+    public bool CanForce { get; init; }
+    public bool RedactDetails { get; init; }
+    public string EntryPath => Private(Installation?.Entry.OriginalPath ?? InstallPath);
+    public string? LaunchTarget => Installation is { } installation ? Private(installation.Entry.TargetPath) : null;
+    public string DisplayInstallPath => Private(InstallPath);
+    public string DisplayWorkingDirectory => Private(WorkingDirectory);
+    public string DisplayArguments => Arguments == "—" ? Arguments : Private(Arguments);
+    public string? WorkerPaths => Installation is { } installation ? Private(string.Join(Environment.NewLine, installation.WorkerPaths)) : null;
+    private string Private(string value) => RedactDetails ? "已脱敏" : value;
+    public bool HasLiveDetails => Installation is not null;
+    public bool NeedsRelocation { get; init; }
+    public bool CanEditFromDetails => HasLiveDetails && !NeedsRelocation;
     public string AccessibleName => $"{Name}，{Game}";
     public string ProcessLabel => Process switch
     {
@@ -67,8 +80,11 @@ internal sealed record ScriptItem(
         GameTaskState.Failed => Tone.Danger,
         _ => Tone.Neutral
     };
-    public string PrimaryAction => Process == ProcessState.Running ? "打开窗口" : "启动软件";
-    public string OperationHint => "进程控制尚未接入";
+    public bool CanPrimary => NeedsRelocation || CanStart || CanActivate;
+    public string PrimaryAction => NeedsRelocation ? "重新定位" :
+        Identity is not null || Process is ProcessState.Running or ProcessState.Stopping ? "打开窗口" : "启动软件";
+    public string OperationHint => Issue ?? (Installation is null ? "演示数据仅供预览。" :
+        CanStart ? "软件已停止。窗口与退出操作需要已确认的运行实例。" : "可操作已确认的软件实例。");
 }
 
 internal sealed record ScriptUsage(double? Cpu, double? MemoryMiB, TimeSpan? Uptime);
@@ -80,6 +96,7 @@ internal enum LogLevel { Information, Warning, Error }
 
 internal sealed record LogEntry(DateTimeOffset Time, string Source, LogLevel Level, string Message, string Detail)
 {
+    public Guid? InstallationId { get; init; }
     public string Clock => Time.ToLocalTime().ToString("HH:mm:ss");
     public string Timestamp => Time.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
     public string LevelLabel => Level switch

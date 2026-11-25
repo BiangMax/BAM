@@ -36,8 +36,20 @@
         "resolved": "4.3.0",
         "contentHash": "7Kj9DmCCo4SOCd1jAiw4+EcMFP2nR8rLLvitAYzVtzbWToTsodkbie24+8x9C4LDLxkopWEUGX62szqqNy7oeg=="
       },
+      "bam.adapters": {
+        "type": "Project",
+        "dependencies": {
+          "BAM.Core": "[0.1.0-alpha.1, )"
+        }
+      },
       "bam.core": {
         "type": "Project"
+      },
+      "bam.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "BAM.Core": "[0.1.0-alpha.1, )"
+        }
       }
     },
     "net10.0-windows7.0/win-x64": {}

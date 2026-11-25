@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using BAM.Desktop.Controls;
+using BAM.Desktop.Data;
 using BAM.Desktop.Settings;
 using BAM.Desktop.ViewModels;
 using Wpf.Ui.Controls;
@@ -22,23 +23,31 @@ public partial class MainWindow : FluentWindow
     private readonly ShellViewModel _shell;
     private readonly SettingsViewModel _settings;
     private readonly ThemeController _theme;
+    private readonly LiveDesktopData? _live;
+    private readonly Func<Task> _prepareExit;
     private TrayIcon? _tray;
     private bool _exiting;
+    private bool _exitPrepared;
     private WindowState _restoreState = WindowState.Normal;
-#if BAM_DEMO
+#if BAM_DEMO || BAM_VERIFICATION
     private string? _captureDirectory;
     private DemoCapture? _capture;
 
     internal void EnableCapture(string directory) => _captureDirectory = directory;
 #endif
 
-    internal MainWindow(ShellViewModel shell, SettingsViewModel settings, ThemeController theme)
+    internal MainWindow(ShellViewModel shell, SettingsViewModel settings, ThemeController theme,
+        LiveDesktopData? live, Func<Task> prepareExit)
     {
         _shell = shell;
         _settings = settings;
         _theme = theme;
+        _live = live;
+        _prepareExit = prepareExit;
         InitializeComponent();
         DataContext = _shell;
+        IsVisibleChanged += (_, _) => ConfigureMonitoring();
+        _settings.PropertyChanged += SettingsChanged;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -55,7 +64,7 @@ public partial class MainWindow : FluentWindow
         Width = Math.Min(Width, width);
         Height = Math.Min(Height, height);
         _tray = new TrayIcon(Restore, OpenOverview, ExitFromTray, _shell.MonitoringStatus);
-#if BAM_DEMO
+#if BAM_DEMO || BAM_VERIFICATION
         if (_captureDirectory is not null) _capture = new DemoCapture(this, Shell, _captureDirectory);
 #endif
     }
@@ -87,6 +96,7 @@ public partial class MainWindow : FluentWindow
     {
         if (WindowState != WindowState.Minimized) _restoreState = WindowState;
         base.OnStateChanged(e);
+        ConfigureMonitoring();
     }
 
     private void OpenOverview()
@@ -95,26 +105,47 @@ public partial class MainWindow : FluentWindow
         Restore();
     }
 
-    internal void AllowClose() => _exiting = true;
+    internal void AllowSessionEnd() => _exitPrepared = true;
 
-    private void ExitFromTray()
+    private void ExitFromTray() => BeginExit();
+
+    private async void BeginExit()
     {
-        AllowClose();
+        if (_exiting) return;
+        _exiting = true;
+        await Task.Yield();
+        await _prepareExit();
+        _exitPrepared = true;
         Close();
     }
 
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (e.Cancel || _exiting || !_settings.CloseToTray || _tray is null) return;
+        if (e.Cancel || _exitPrepared) return;
         e.Cancel = true;
-        Hide();
-        if (_settings.MarkTrayIntroSeen()) _tray.ShowIntro();
+        if (!_exiting && _settings.CloseToTray && _tray is not null)
+        {
+            Hide();
+            if (_settings.MarkTrayIntroSeen()) _tray.ShowIntro();
+        }
+        else BeginExit();
     }
+
+    private void SettingsChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(SettingsViewModel.CollectResources)) return;
+        ConfigureMonitoring();
+        _tray?.SetStatus(_shell.MonitoringStatus);
+    }
+
+    private void ConfigureMonitoring() => _live?.Configure(_settings.CollectResources,
+        TimeSpan.FromSeconds(!IsVisible ? 10 : WindowState == WindowState.Minimized ? 5 : 1));
 
     protected override void OnClosed(EventArgs e)
     {
-#if BAM_DEMO
+        _settings.PropertyChanged -= SettingsChanged;
+#if BAM_DEMO || BAM_VERIFICATION
         _capture?.Dispose();
 #endif
         _tray?.Dispose();

@@ -157,6 +157,12 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
+      "bam.adapters": {
+        "type": "Project",
+        "dependencies": {
+          "BAM.Core": "[0.1.0-alpha.1, )"
+        }
+      },
       "bam.core": {
         "type": "Project"
       }

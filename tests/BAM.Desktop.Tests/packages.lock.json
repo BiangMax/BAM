@@ -170,14 +170,28 @@
       "BAM": {
         "type": "Project",
         "dependencies": {
+          "BAM.Adapters": "[0.1.0-alpha.1, )",
           "BAM.Core": "[0.1.0-alpha.1, )",
+          "BAM.Infrastructure": "[0.1.0-alpha.1, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.15, )",
           "WPF-UI": "[4.3.0, )"
         }
       },
+      "bam.adapters": {
+        "type": "Project",
+        "dependencies": {
+          "BAM.Core": "[0.1.0-alpha.1, )"
+        }
+      },
       "bam.core": {
         "type": "Project"
+      },
+      "bam.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "BAM.Core": "[0.1.0-alpha.1, )"
+        }
       },
       "CommunityToolkit.Mvvm": {
         "type": "CentralTransitive",

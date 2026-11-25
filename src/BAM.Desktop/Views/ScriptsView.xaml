@@ -11,14 +11,16 @@
         </Grid.RowDefinitions>
         <DockPanel Margin="{StaticResource Bam.After.Block}">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button IsEnabled="False" ToolTip="{Binding DiscoveryHint}" AutomationProperties.HelpText="{Binding DiscoveryHint}">
+                <Button IsEnabled="{Binding CanManage}" ToolTip="{Binding DiscoveryHint}" AutomationProperties.HelpText="{Binding DiscoveryHint}"
+                        Command="{Binding DataContext.DiscoverCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}">
                     <StackPanel Orientation="Horizontal">
                         <ui:SymbolIcon Symbol="Search24" FontSize="16" Margin="{StaticResource Bam.Gap.Right}"
-                                       Foreground="{DynamicResource Bam.TextMuted}"/>
-                        <TextBlock Text="自动检测" Foreground="{DynamicResource Bam.TextMuted}"/>
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        <TextBlock Text="自动检测"/>
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource Bam.PrimaryButton}" Content="手动添加" IsEnabled="False"
+                <Button Style="{StaticResource Bam.PrimaryButton}" Content="手动添加" IsEnabled="{Binding CanManage}"
+                        Command="{Binding DataContext.AddScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
                         Margin="{StaticResource Bam.Gap.Small}" ToolTip="{Binding DiscoveryHint}"
                         AutomationProperties.HelpText="{Binding DiscoveryHint}"/>
             </StackPanel>
@@ -34,7 +36,7 @@
                 <ColumnDefinition Width="{StaticResource Bam.ColumnGutter}"/>
                 <ColumnDefinition Width="4*" MinWidth="290"/>
             </Grid.ColumnDefinitions>
-            <Border Style="{StaticResource Bam.Panel}" Padding="0" VerticalAlignment="Top">
+            <Border Style="{StaticResource Bam.Panel}" Padding="0">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="{StaticResource Bam.DensePanelPadding}">
                         <TextBlock DockPanel.Dock="Right" Text="{Binding CountLabel}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
@@ -78,7 +80,8 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="{StaticResource Bam.PanelPadding}" DataContext="{Binding Selected}">
                         <DockPanel Margin="{StaticResource Bam.After.Section}">
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding Version}" Style="{StaticResource Bam.MonoText}" VerticalAlignment="Center" Margin="{StaticResource Bam.Gap.Small}"/>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Version}" ToolTip="{Binding VersionDetail}"
+                                       Style="{StaticResource Bam.MonoText}" VerticalAlignment="Center" Margin="{StaticResource Bam.Gap.Small}"/>
                             <ContentControl Content="{Binding}" ContentTemplate="{StaticResource Bam.ScriptIdentity}"
                                             Focusable="False" IsTabStop="False"/>
                         </DockPanel>
@@ -94,15 +97,31 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBlock Text="安装路径" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Medium}"/>
                             <TextBlock Grid.Row="1" Text="工作目录" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Medium}"/>
-                            <TextBlock Grid.Row="2" Text="启动参数" Style="{StaticResource Bam.Muted}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding InstallPath}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
+                            <TextBlock Grid.Row="2" Text="启动参数" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Small}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding DisplayInstallPath}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
                                        Margin="{StaticResource Bam.After.Medium}"/>
-                            <TextBlock Grid.Column="1" Grid.Row="1" Text="{Binding WorkingDirectory}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
+                            <TextBlock Grid.Column="1" Grid.Row="1" Text="{Binding DisplayWorkingDirectory}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
                                        Margin="{StaticResource Bam.After.Medium}"/>
-                            <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding Arguments}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding DisplayArguments}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="3" Text="启动入口" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Small}"
+                                       Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding EntryPath}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"
+                                       Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                            <TextBlock Grid.Row="4" Text="启动目标" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.After.Small}"
+                                       Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding LaunchTarget}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="5" Text="工作程序" Style="{StaticResource Bam.Muted}"
+                                       Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding WorkerPaths}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Text="{Binding VersionDetail}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
+                                       Margin="{StaticResource Bam.Before.Small}" Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
                         </Grid>
                         <Border Style="{StaticResource Bam.SettingsRow}">
                             <TextBlock Text="管理能力" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
@@ -113,14 +132,28 @@
                             <TextBlock Text="管理操作" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
                         </Border>
                         <WrapPanel>
-                            <Button Content="{Binding PrimaryAction}" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                            <Button Content="{Binding PrimaryAction}" Style="{StaticResource Bam.PrimaryButton}" IsEnabled="{Binding CanPrimary}"
+                                    Command="{Binding DataContext.PrimaryCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                    CommandParameter="{Binding}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
                                     AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
-                            <Button Content="正常关闭" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                            <Button Content="正常关闭" IsEnabled="{Binding CanClose}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
+                                    Command="{Binding DataContext.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
                                     AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
-                            <Button Content="重启软件" IsEnabled="False" ToolTip="{Binding OperationHint}"
+                            <Button Content="重启软件" IsEnabled="{Binding CanRestart}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
+                                    Command="{Binding DataContext.RestartScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
+                                    Margin="{StaticResource Bam.Gap.Right}"
                                     AutomationProperties.HelpText="{Binding OperationHint}"/>
+                            <Button Content="强制结束…" IsEnabled="{Binding CanForce}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
+                                    Command="{Binding DataContext.ForceScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"/>
                         </WrapPanel>
-                        <TextBlock Text="{Binding OperationHint}" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.Before.Medium}"/>
+                        <TextBlock Text="{Binding OperationHint}" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.Before.Medium}" TextWrapping="Wrap"/>
+                        <WrapPanel Margin="{StaticResource Bam.Before.Medium}"
+                                   Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}">
+                            <Button Content="编辑配置" Margin="{StaticResource Bam.Gap.Right}"
+                                    Visibility="{Binding CanEditFromDetails, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                                    Command="{Binding DataContext.EditScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"/>
+                            <Button Content="移除记录…" Command="{Binding DataContext.RemoveScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"/>
+                        </WrapPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -133,7 +166,7 @@
                     </Style.Triggers>
                 </Style>
             </Border.Style>
-            <local:EmptyState Title="尚未添加脚本" Description="安装发现与手动定位将在通用管理接入后开放。" Symbol="Apps24"/>
+            <local:EmptyState Title="尚未添加脚本" Description="可自动检测已知软件，或手动选择启动入口。" Symbol="Apps24"/>
         </Border>
     </Grid>
 </UserControl>

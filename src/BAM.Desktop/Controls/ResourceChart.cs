@@ -69,25 +69,25 @@ internal sealed class ResourceChart : FrameworkElement
         var fill = line.Brush.CloneCurrentValue();
         fill.Opacity = SystemParameters.HighContrast ? 0 : 0.11;
         FillSegments(drawing, history, plot, maximum, line, fill, segment);
-        if (_cursor is { } cursor && cursor.Time >= history[0].Time)
+        if (_cursor is { } cursor && cursor.Position >= history[0].Position)
             DrawCursor(drawing, cursor, plot, maximum, line);
     }
 
     private void FillSegments(DrawingContext drawing, ResourceHistory history, Rect plot, double maximum,
         Pen line, Brush fill, List<Point> segment)
     {
-        DateTimeOffset? previous = null;
+        TimeSpan? previous = null;
         for (var index = 0; index < history.Count; index++)
         {
             var point = history[index];
             var value = Value(point);
-            if (value is null || (previous is { } time && point.Time - time > TimeSpan.FromSeconds(2.5)))
+            if (value is null || (previous is { } time && point.Position - time > TimeSpan.FromSeconds(2.5)))
             {
                 DrawSegment(drawing, plot, line, fill, segment);
                 segment.Clear();
             }
             if (value is { } known) segment.Add(Position(point, known, plot, maximum));
-            previous = point.Time;
+            previous = point.Position;
         }
         DrawSegment(drawing, plot, line, fill, segment);
     }
@@ -141,7 +141,7 @@ internal sealed class ResourceChart : FrameworkElement
     private double? Value(ResourcePoint point) => ShowMemory ? point.MemoryMiB : point.Cpu;
 
     private Point Position(ResourcePoint point, double value, Rect plot, double maximum)
-        => new(plot.Right - (History!.End - point.Time).TotalSeconds / ResourceHistory.WindowSeconds * plot.Width,
+        => new(plot.Right - (History!.EndPosition - point.Position).TotalSeconds / ResourceHistory.WindowSeconds * plot.Width,
             plot.Bottom - Math.Clamp(value / maximum, 0, 1) * plot.Height);
 
     private FormattedText Text(string text) => new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
@@ -157,10 +157,10 @@ internal sealed class ResourceChart : FrameworkElement
             return;
         }
         var elapsed = (Plot.Right - args.GetPosition(this).X) * ResourceHistory.WindowSeconds / Plot.Width;
-        var time = history.End.AddSeconds(-elapsed);
+        var time = history.EndPosition - TimeSpan.FromSeconds(elapsed);
         var closest = 0;
         for (var index = 1; index < history.Count; index++)
-            if ((history[index].Time - time).Duration() < (history[closest].Time - time).Duration()) closest = index;
+            if ((history[index].Position - time).Duration() < (history[closest].Position - time).Duration()) closest = index;
         SetCursor(history[closest]);
     }
 
@@ -184,7 +184,7 @@ internal sealed class ResourceChart : FrameworkElement
         if (_cursor is { } cursor)
         {
             var step = args.Key == Key.Left ? -1 : 1;
-            while (index > 0 && history[index].Time > cursor.Time) index--;
+            while (index > 0 && history[index].Position > cursor.Position) index--;
             index = Math.Clamp(index + step, 0, history.Count - 1);
         }
         SetCursor(history[index]);
@@ -196,7 +196,7 @@ internal sealed class ResourceChart : FrameworkElement
         base.OnPropertyChanged(args);
         if (args.Property == ShowMemoryProperty) UpdateInspection();
         if (args.Property == RevisionProperty && _cursor is { } cursor && History is { Count: > 0 } history
-            && cursor.Time < history[0].Time)
+            && cursor.Position < history[0].Position)
             SetCursor(null);
     }
 

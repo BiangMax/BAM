@@ -121,10 +121,15 @@
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <ui:SymbolIcon Symbol="{Binding Icon}">
+                <Grid>
+                  <ui:SymbolIcon Symbol="{Binding Icon}">
                     <ui:SymbolIcon.Style>
                         <Style TargetType="ui:SymbolIcon" BasedOn="{StaticResource Bam.AccentIcon}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
+                                <DataTrigger Binding="{Binding ActualIcon}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
                                 <DataTrigger Binding="{Binding IdentityTone}" Value="Success">
                                     <Setter Property="Foreground" Value="{DynamicResource Bam.Success}"/>
                                 </DataTrigger>
@@ -134,7 +139,9 @@
                             </Style.Triggers>
                         </Style>
                     </ui:SymbolIcon.Style>
-                </ui:SymbolIcon>
+                  </ui:SymbolIcon>
+                  <Image Source="{Binding ActualIcon}" Width="24" Height="24" RenderOptions.BitmapScalingMode="HighQuality"/>
+                </Grid>
             </Border>
             <StackPanel>
                 <TextBlock Style="{StaticResource Bam.CardTitle}" Text="{Binding Name}" TextWrapping="Wrap"/>

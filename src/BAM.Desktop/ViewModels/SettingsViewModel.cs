@@ -21,10 +21,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private ThemeChoice _theme;
     [ObservableProperty] private bool _reduceMotion;
     [ObservableProperty] private bool _closeToTray;
+    [ObservableProperty] private bool _collectResources;
     [ObservableProperty] private string? _notice;
     [ObservableProperty] private string? _linkNotice;
 
-    public SettingsViewModel(SettingsStore store, DesktopPreferences preferences, string? loadNotice)
+    public SettingsViewModel(SettingsStore store, DesktopPreferences preferences, string? loadNotice, bool canCollectResources, bool? elevated)
     {
         _store = store;
         _loadNotice = loadNotice;
@@ -32,6 +33,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
         _theme = preferences.Theme;
         _reduceMotion = preferences.ReduceMotion;
         _closeToTray = preferences.CloseToTray;
+        _collectResources = preferences.CollectResources;
+        CanCollectResources = canCollectResources;
+        Elevated = elevated;
         _trayIntroSeen = preferences.TrayIntroSeen;
     }
 
@@ -39,6 +43,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
         [new(ThemeChoice.Dark, "深色"), new(ThemeChoice.Light, "浅色"), new(ThemeChoice.System, "跟随系统")];
 
     public string VersionLabel => $"BAM {ShellViewModel.Version}";
+    public bool CanCollectResources { get; }
+    public bool? Elevated { get; }
+    public string ResourceDescription => CanCollectResources
+        ? "采集已确认主进程的 CPU 和工作集。暂停后继续观测进程状态。" : "演示模式使用合成曲线。";
     public bool MarkTrayIntroSeen()
     {
         if (_trayIntroSeen) return false;
@@ -50,8 +58,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
     partial void OnThemeChanged(ThemeChoice value) => Save();
     partial void OnReduceMotionChanged(bool value) => Save();
     partial void OnCloseToTrayChanged(bool value) => Save();
+    partial void OnCollectResourcesChanged(bool value) => Save();
 
-    private void Save() => _ = SaveAsync(++_saveRevision, new(1, Theme, ReduceMotion, CloseToTray, _trayIntroSeen));
+    private void Save() => _ = SaveAsync(++_saveRevision, new(1, Theme, ReduceMotion, CloseToTray, _trayIntroSeen, CollectResources));
 
     private async Task SaveAsync(int revision, DesktopPreferences settings)
     {

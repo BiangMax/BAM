@@ -11,12 +11,13 @@ internal sealed class SingleInstance : IDisposable
     private readonly Mutex _mutex;
     private RegisteredWaitHandle? _registration;
 
-    internal SingleInstance()
+    internal SingleInstance(bool elevated, string applicationName = "Biang.BAM")
     {
         using var identity = WindowsIdentity.GetCurrent();
         var user = identity.User ?? throw new UnauthorizedAccessException("无法确认当前 Windows 用户。");
-        _signalName = $"Biang.BAM.{user.Value}.Activate";
-        _mutex = new Mutex($"Biang.BAM.{user.Value}.Primary",
+        // Keep the per-user mutex shared. Only a launch at the same elevation may silently activate a window.
+        _signalName = $"{applicationName}.{user.Value}.Activate" + (elevated ? ".Elevated" : "");
+        _mutex = new Mutex($"{applicationName}.{user.Value}.Primary",
             new NamedWaitHandleOptions { CurrentUserOnly = true, CurrentSessionOnly = false });
         try { IsPrimary = _mutex.WaitOne(0); }
         catch (AbandonedMutexException) { IsPrimary = true; }

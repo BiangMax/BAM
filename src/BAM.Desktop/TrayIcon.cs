@@ -42,6 +42,12 @@ internal sealed class TrayIcon : IDisposable
             "双击托盘图标恢复窗口。要关闭程序，请在托盘菜单选择“退出 BAM”。", Forms.ToolTipIcon.Info);
     }
 
+    public void SetStatus(string status)
+    {
+        _menu.Items[1].Text = status;
+        _notification.Text = $"BAM · {status}";
+    }
+
     private void Restore(object? sender, EventArgs args) => _restore();
     private void OpenOverview(object? sender, EventArgs args) => _overview();
     private void Exit(object? sender, EventArgs args) => _exit();

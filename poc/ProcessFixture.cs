@@ -46,6 +46,29 @@ internal static class ProcessFixture
     private static int Run(string[] args)
     {
         if (args.Length == 1 && args[0] == "window-test") return TestWindow();
+        if (args.Length > 0 && args[0].StartsWith("phase3", StringComparison.Ordinal))
+        {
+            using (var form = new Form())
+            using (var timeout = new System.Windows.Forms.Timer())
+            {
+                form.Text = "BAM Phase 3 owned fixture";
+                form.ShowInTaskbar = true;
+                form.WindowState = FormWindowState.Minimized;
+                form.FormClosed += delegate { Application.ExitThread(); };
+                if (args[0] == "phase3-ignore-close")
+                    form.FormClosing += delegate(object sender, FormClosingEventArgs e) { e.Cancel = true; };
+                timeout.Interval = args[0] == "phase3-exit" ? 2500 : 30000;
+                timeout.Tick += delegate { Application.ExitThread(); };
+                form.Shown += delegate
+                {
+                    if (args.Length > 1) File.WriteAllText("fixture-evidence.txt", args[1]);
+                    if (args[0] == "phase3-hung") Thread.Sleep(10000);
+                };
+                timeout.Start();
+                Application.Run(form);
+                return args[0] == "phase3-exit" ? 23 : 0;
+            }
+        }
         if (args.Length == 1 && args[0] == "worker")
         {
             using (var form = new Form())

@@ -12,14 +12,14 @@
 | Phase 2 | WPF-UI 4.3.0 | MIT，NuGet 包含 net10.0-windows7.0 目标和 WPF-UI.Abstractions；项目持续发布。仅 Desktop 引用，主要使用窗口、导航和主题。先验收 Snap、键盘和高 DPI；个别控件可换原生 WPF。 |
 | Phase 2 | CommunityToolkit.Mvvm 8.4.2 | MIT。ObservableObject、生成式命令和属性通知，减少手写样板代码；版本源生成器须经实际 SDK 编译确认。 |
 | Phase 2–3 | WPF Drawing、WinForms NotifyIcon、System.Drawing.Icon | Windows 桌面框架随附。轻量曲线和托盘无须另加图表或托盘包。图标读取后转换、冻结并缓存，释放原生句柄。 |
-| Phase 3 | System.Diagnostics.Process、窄接口 P/Invoke、FileSystemWatcher、System.Text.Json | 平台自带。路径查询只申请有限查询权限。Win32 包装负责资源释放及错误码。JSON 足够保存少量脚本定义。 |
-| Phase 3 | Serilog 与 Serilog.Sinks.File | Apache-2.0。按文件大小及日期轮转，保留数量设限，写结构化属性，面向用户的最近事件另做有界缓冲。采用包的现有实现以减少自写轮转和争用处理。 |
+| Phase 3 | System.Diagnostics.Process、Win32、Windows 快捷方式 COM、System.Text.Json | 平台随附。使用 Windows 系统目录中的命令解释器处理已确认的批处理入口。Win32 包装负责实例复核、窗口、图标、工作集和句柄释放。 |
+| Phase 3 | BCL 文件 I/O、JSON Lines | BAM 单写者输出结构化事件，4 个文件各约 1 MiB，保留期 14 天。UI 最多保留 2,000 条。沿用已锁定的依赖版本。 |
 | Phase 4（按需） | ASP.NET Core 10 Kestrel | 用 FrameworkReference 引入，启用 MAA 远控时才启动服务。框架依赖发布需同时部署相应共享运行时，当前宿主未列出该运行时。HTTP 形状已用标准库验证，Kestrel 尚未实机验证。 |
 | 有证据后 | FlaUI.UIA3、SQLite | 暂缓。FlaUI（MIT）仅在有可复现且稳定的 AutomationId 时评估；有历史查询需求后评估 SQLite 引擎及 .NET 提供程序、原生二进制的单独许可证和部署成本。 |
 
 Phase 2 已引入 WPF-UI 4.3.0、其传递依赖 WPF-UI.Abstractions 4.3.0 和 CommunityToolkit.Mvvm 8.4.2。组合方式和本机验收记录见 [Phase 2 报告](PHASE2_REPORT.md)。后续依赖按表中阶段引入。Directory.Packages.props 集中固定版本，CI 使用锁定模式还原。正式发布时清点传递依赖、图标字形和字体的许可及通知要求。第三方应用保持独立安装。BAM 的许可证由项目所有者决定。
 
-[WPF UI 包与许可证](https://www.nuget.org/packages/WPF-UI/4.3.0) · [MVVM Toolkit](https://www.nuget.org/packages/CommunityToolkit.Mvvm/8.4.2) · [Microsoft DI](https://www.nuget.org/packages/Microsoft.Extensions.DependencyInjection/10.0.0) · [xUnit](https://github.com/xunit/xunit) · [Serilog 文件输出](https://github.com/serilog/serilog-sinks-file) · [Kestrel 绑定](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/endpoints?view=aspnetcore-10.0)
+[WPF UI 包与许可证](https://www.nuget.org/packages/WPF-UI/4.3.0) · [MVVM Toolkit](https://www.nuget.org/packages/CommunityToolkit.Mvvm/8.4.2) · [Microsoft DI](https://www.nuget.org/packages/Microsoft.Extensions.DependencyInjection/10.0.15) · [xUnit](https://github.com/xunit/xunit) · [Kestrel 绑定](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/endpoints?view=aspnetcore-10.0)
 
 ## 候选比较
 

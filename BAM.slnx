@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/BAM.Core/BAM.Core.csproj" />
+    <Project Path="src/BAM.Adapters/BAM.Adapters.csproj" />
+    <Project Path="src/BAM.Infrastructure/BAM.Infrastructure.csproj" />
     <Project Path="src/BAM.Desktop/BAM.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">

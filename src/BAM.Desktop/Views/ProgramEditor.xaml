@@ -1,0 +1,38 @@
+<Window x:Class="BAM.Desktop.Views.ProgramEditor"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="管理软件配置" Width="560" SizeToContent="Height" MaxHeight="720"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Bam.Background}" Foreground="{DynamicResource Bam.TextPrimary}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="{StaticResource Bam.PanelPadding}">
+            <TextBlock Text="管理软件配置" Style="{StaticResource Bam.SectionTitle}" Margin="{StaticResource Bam.After.Medium}"/>
+            <TextBlock Text="启动入口" Style="{StaticResource Bam.Caption}"/>
+            <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                <Button DockPanel.Dock="Right" Content="选择文件" Click="ChooseEntry" Margin="{StaticResource Bam.Gap.Left}"/>
+                <TextBox x:Name="EntryPath" IsReadOnly="True" AutomationProperties.Name="启动入口"/>
+            </DockPanel>
+            <TextBlock Text="软件名称" Style="{StaticResource Bam.Caption}"/>
+            <TextBox x:Name="ProgramName" MaxLength="80" AutomationProperties.Name="软件名称" Margin="{StaticResource Bam.After.Medium}"/>
+            <TextBlock Text="工作目录" Style="{StaticResource Bam.Caption}"/>
+            <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                <Button DockPanel.Dock="Right" Content="选择目录" Click="ChooseDirectory" Margin="{StaticResource Bam.Gap.Left}"/>
+                <TextBox x:Name="WorkDirectory" AutomationProperties.Name="工作目录"/>
+            </DockPanel>
+            <TextBlock Text="启动参数" Style="{StaticResource Bam.Caption}"/>
+            <TextBox x:Name="LaunchArguments" MaxLength="4096" AutomationProperties.Name="启动参数" Margin="{StaticResource Bam.After.Medium}"/>
+            <TextBlock Text="实际工作程序 EXE（启动器或脚本可指定）" Style="{StaticResource Bam.Caption}"/>
+            <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                <Button DockPanel.Dock="Right" Content="选择 EXE" Click="ChooseWorker" Margin="{StaticResource Bam.Gap.Left}"/>
+                <TextBox x:Name="WorkerPath" AutomationProperties.Name="实际工作程序"/>
+            </DockPanel>
+            <TextBlock x:Name="EditorNotice" Foreground="{DynamicResource Bam.Warning}" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" Margin="{StaticResource Bam.After.Medium}"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="取消" IsCancel="True" Margin="{StaticResource Bam.Gap.Right}"/>
+                <Button x:Name="SaveButton" Style="{StaticResource Bam.PrimaryButton}" Content="保存配置" IsDefault="True"
+                        Click="Save" IsEnabled="False"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

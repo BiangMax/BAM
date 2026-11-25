@@ -39,7 +39,7 @@ public partial class DashboardView : UserControl
     private void UpdateSampling()
     {
         if (!IsLoaded || !IsVisible || _owner is null || _owner.WindowState == WindowState.Minimized
-            || DataContext is not DashboardViewModel { HasResourceSource: true })
+            || DataContext is not DashboardViewModel { IsDemo: true, HasResourceSource: true })
         {
             _timer.Stop();
             return;

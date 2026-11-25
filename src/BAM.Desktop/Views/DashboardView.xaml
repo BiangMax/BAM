@@ -35,10 +35,10 @@
                         </Style.Triggers>
                     </Style>
                 </local:ResponsivePanel.Style>
-                <local:MetricTile Label="已启动 / 已管理" Symbol="Apps24" Value="{Binding ProcessCount}" Detail="软件进程"/>
+                <local:MetricTile Label="已启动 / 已管理" Symbol="Apps24" Value="{Binding ProcessCount}" Detail="{Binding ProcessHint}"/>
                 <local:MetricTile Label="游戏任务检测" Symbol="Target24" Value="—" Detail="暂无可检测任务"/>
-                <local:MetricTile Label="脚本 CPU" Symbol="TopSpeed24" Value="{Binding Cpu}" Detail="{Binding ResourceHint}"/>
-                <local:MetricTile Label="工作集内存" Symbol="Database24" Value="{Binding Memory}" Detail="{Binding ResourceHint}"/>
+                <local:MetricTile Label="脚本 CPU" Symbol="TopSpeed24" Value="{Binding Cpu}" Detail="{Binding CpuScope}"/>
+                <local:MetricTile Label="工作集内存" Symbol="Database24" Value="{Binding Memory}" Detail="{Binding MemoryScope}"/>
             </local:ResponsivePanel>
 
             <Grid>
@@ -176,7 +176,7 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <local:EmptyState Title="尚未添加脚本" Description="安装发现与手动定位将在通用管理接入后开放。" Symbol="Apps24"/>
+                        <local:EmptyState Title="尚未添加脚本" Description="在脚本管理中自动检测已知软件，或手动添加。" Symbol="Apps24"/>
                     </Border>
                 </StackPanel>
 

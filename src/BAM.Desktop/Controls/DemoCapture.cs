@@ -1,4 +1,4 @@
-#if BAM_DEMO
+#if BAM_DEMO || BAM_VERIFICATION
 using System.IO;
 using System.Windows;
 using System.Windows.Interop;
@@ -16,7 +16,7 @@ internal sealed class DemoCapture : IDisposable
     private static readonly string[] Names =
     [
         "01-dashboard-dark", "02-dashboard-light", "03-dashboard-narrow", "04-scripts",
-        "05-logs", "06-settings", "07-dashboard-memory", "08-empty", "09-narrow-cards"
+        "05-logs", "06-settings", "07-dashboard-memory", "08-empty", "09-narrow-cards", "10-unavailable"
     ];
 
     private readonly FrameworkElement _shell;

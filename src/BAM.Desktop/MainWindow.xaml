@@ -116,17 +116,21 @@
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="{DynamicResource Bam.Rail}"
                 BorderBrush="{DynamicResource Bam.Border}" BorderThickness="0,1,0,0" Padding="{StaticResource Bam.ButtonPadding}">
-            <DockPanel LastChildFill="False">
+            <DockPanel LastChildFill="True">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding VersionLabel}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal">
                     <ui:SymbolIcon Symbol="Pulse24" FontSize="14" Foreground="{DynamicResource Bam.PrimaryLight}"/>
                     <TextBlock Text="{Binding MonitoringStatus}" Margin="{StaticResource Bam.Gap.Small}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding PermissionLabel}" Margin="{StaticResource Bam.Gap.Left}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
                 </StackPanel>
                 <Button Style="{StaticResource Bam.QuietButton}" Foreground="{DynamicResource Bam.Danger}"
                         Content="{Binding ErrorLabel}" Command="{Binding OpenErrorsCommand}" MinHeight="31"
                         Margin="{StaticResource Bam.Gap.Small}" ToolTip="查看错误日志"
                         AutomationProperties.AutomationId="OpenErrors"
                         Visibility="{Binding HasErrors, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
-                <TextBlock DockPanel.Dock="Right" Text="{Binding VersionLabel}" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding OperationNotice}" ToolTip="{Binding OperationNotice}"
+                           Margin="{StaticResource Bam.Gap.Left}" TextTrimming="CharacterEllipsis"
+                           AutomationProperties.LiveSetting="Polite" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
             </DockPanel>
         </Border>
     </Grid>

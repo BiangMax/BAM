@@ -1,7 +1,11 @@
 using System.Windows;
+using System.IO;
+using BAM.Adapters;
+using BAM.Core;
 using BAM.Desktop.Data;
 using BAM.Desktop.Settings;
 using BAM.Desktop.ViewModels;
+using BAM.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BAM.Desktop;
@@ -11,32 +15,49 @@ public partial class App : Application
     private SingleInstance? _instance;
     private ServiceProvider? _services;
     private SettingsStore? _settingsStore;
+    private LiveDesktopData? _live;
+    private Task? _drain;
     private readonly CancellationTokenSource _lifetime = new();
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        var elevated = WindowsProgramPlatform.IsCurrentProcessElevated();
         try
         {
-            _instance = new SingleInstance();
+            _instance = new SingleInstance(elevated == true);
             if (!_instance.IsPrimary)
             {
-                Shutdown(_instance.RequestActivation() ? 0 : 2);
+                if (_instance.RequestActivation())
+                {
+                    Shutdown(0);
+                    return;
+                }
+
+                ShowInstanceConflict(elevated);
+                Shutdown(2);
                 return;
             }
         }
         catch (UnauthorizedAccessException)
         {
-            MessageBox.Show("无法访问 BAM 的单实例对象。请使用同一用户和权限级别打开 BAM。", "BAM");
+            ShowInstanceConflict(elevated);
             Shutdown(3);
             return;
         }
 
-        IDesktopData data = new EmptyDesktopData();
+        IDesktopData? demo = null;
 #if BAM_DEMO
-        if (e.Args.Contains("--demo", StringComparer.Ordinal)) data = new DemoDesktopData();
+        if (e.Args.Contains("--demo", StringComparer.Ordinal)) demo = new DemoDesktopData();
 #endif
-        _settingsStore = new SettingsStore(data.IsDemo);
+        var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM");
+#if BAM_VERIFICATION
+        var profileArgument = Array.IndexOf(e.Args, "--verification-profile");
+        if (profileArgument >= 0 && profileArgument + 1 < e.Args.Length)
+            profile = Path.GetFullPath(e.Args[profileArgument + 1]);
+#endif
+        var sessionOnly = elevated != false;
+        _settingsStore = new SettingsStore(demo is not null, Path.Combine(profile, "settings.json"), sessionOnly);
         var cancellation = _lifetime.Token;
         DesktopPreferences preferences;
         string? notice;
@@ -45,15 +66,30 @@ public partial class App : Application
         if (cancellation.IsCancellationRequested) return;
 
         var services = new ServiceCollection();
-        services.AddSingleton(data);
-        services.AddSingleton(new SettingsViewModel(_settingsStore, preferences, notice));
+        if (demo is not null) services.AddSingleton(demo);
+        else
+        {
+            services.AddSingleton<IProgramFiles, WindowsProgramFiles>();
+            services.AddSingleton<IProgramPlatform, WindowsProgramPlatform>();
+            services.AddSingleton<IProgramStore>(new LocalProgramStore(profile, sessionOnly));
+            services.AddSingleton<IProgramEventStore>(new LocalProgramEventStore(Path.Combine(profile, "logs"), sessionOnly));
+            services.AddSingleton(TimeProvider.System);
+            services.AddSingleton<InstallationCatalog>();
+            services.AddSingleton<ProgramMonitor>();
+            services.AddSingleton<IDesktopData, LiveDesktopData>();
+        }
+        if (demo is null && sessionOnly)
+            notice = string.Join(" ", new[] { notice, "当前权限下，设置、安装修改和新增日志仅保留在本次会话。" }
+                .Where(value => value is not null));
+        services.AddSingleton(new SettingsViewModel(_settingsStore, preferences, notice, demo is null, elevated));
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<ScriptsViewModel>();
         services.AddSingleton<LogsViewModel>();
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<ThemeController>();
         services.AddSingleton(service => new MainWindow(service.GetRequiredService<ShellViewModel>(),
-            service.GetRequiredService<SettingsViewModel>(), service.GetRequiredService<ThemeController>()));
+            service.GetRequiredService<SettingsViewModel>(), service.GetRequiredService<ThemeController>(),
+            service.GetRequiredService<IDesktopData>() as LiveDesktopData, PrepareExitAsync));
         _services = services.BuildServiceProvider(new ServiceProviderOptions
         {
             ValidateScopes = true,
@@ -61,12 +97,17 @@ public partial class App : Application
         });
         var window = _services.GetRequiredService<MainWindow>();
         MainWindow = window;
-#if BAM_DEMO
+#if BAM_DEMO || BAM_VERIFICATION
         var captureArgument = Array.IndexOf(e.Args, "--capture-dir");
         if (captureArgument >= 0 && captureArgument + 1 < e.Args.Length)
             window.EnableCapture(e.Args[captureArgument + 1]);
 #endif
+        _live = _services.GetRequiredService<IDesktopData>() as LiveDesktopData;
+#if BAM_VERIFICATION
+        if (_live is not null) _live.RedactDetails = captureArgument >= 0;
+#endif
         window.Show();
+        _live?.Start(action => Dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background, cancellation).Task);
         _instance.Listen(() => Dispatcher.InvokeAsync(() =>
         {
             if (Dispatcher.HasShutdownStarted || !window.IsLoaded) return;
@@ -74,19 +115,42 @@ public partial class App : Application
         }));
     }
 
+    private static void ShowInstanceConflict(bool? elevated)
+    {
+        var target = elevated == true ? "再右键选择「以管理员身份运行」。" : "再启动 BAM。";
+        MessageBox.Show("无法打开本次 BAM 窗口，可能已有其他权限或会话的 BAM 在运行。请从现有 BAM 的托盘菜单选择「退出 BAM」，" +
+            target, "BAM · 已有实例", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private Task DrainAsync()
+    {
+        _lifetime.Cancel();
+        return _drain ??= Task.WhenAll(_live?.StopAsync() ?? Task.CompletedTask, _settingsStore?.FlushAsync() ?? Task.CompletedTask);
+    }
+
+    private Task PrepareExitAsync() => WaitForShutdownAsync(DrainAsync(), TimeSpan.FromSeconds(3));
+
+    internal static async Task WaitForShutdownAsync(Task drain, TimeSpan timeout)
+    {
+        try { await drain.WaitAsync(timeout); }
+        catch (TimeoutException) { }
+    }
+
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
         base.OnSessionEnding(e);
-        if (!e.Cancel && MainWindow is MainWindow window) window.AllowClose();
+        if (!e.Cancel && MainWindow is MainWindow window)
+        {
+            window.AllowSessionEnd();
+            _ = DrainAsync();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         try
         {
-            _lifetime.Cancel();
-            _settingsStore?.FlushAsync().GetAwaiter().GetResult();
-            _services?.Dispose();
+            if (DrainAsync().IsCompleted) _services?.Dispose();
         }
         finally
         {

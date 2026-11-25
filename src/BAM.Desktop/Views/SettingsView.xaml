@@ -65,10 +65,12 @@
                         </DockPanel>
                         <Border Style="{StaticResource Bam.SettingsRow}" Padding="0,8,0,0">
                             <DockPanel>
-                                <local:ToneBadge DockPanel.Dock="Right" Text="待接入" Tone="Neutral"/>
+                                <ToggleButton Style="{StaticResource Bam.Switch}" DockPanel.Dock="Right" IsChecked="{Binding CollectResources}"
+                                              IsEnabled="{Binding CanCollectResources}"
+                                              VerticalAlignment="Center" AutomationProperties.Name="脚本资源采样" AutomationProperties.AutomationId="CollectResources"/>
                                 <StackPanel>
                                     <TextBlock Text="脚本资源采样" Style="{StaticResource Bam.Value}"/>
-                                    <TextBlock Text="接入确认的脚本进程后可配置采样策略。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding ResourceDescription}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -96,11 +98,12 @@
 
                 <Border Style="{StaticResource Bam.SettingsPanel}">
                     <DockPanel>
-                        <local:ToneBadge DockPanel.Dock="Right" Text="待接入" Tone="Neutral"/>
+                        <Button DockPanel.Dock="Right" Content="管理脚本" Style="{StaticResource Bam.QuietButton}"
+                                Command="{Binding DataContext.OpenScriptsCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
                         <ui:SymbolIcon Symbol="FolderOpen24" Foreground="{DynamicResource Bam.PrimaryLight}" Margin="{StaticResource Bam.Gap.Right}"/>
                         <StackPanel>
                             <TextBlock Text="脚本配置" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
-                            <TextBlock Text="安装路径与启动参数将在脚本管理中维护。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                            <TextBlock Text="查看安装、启动入口和参数。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </DockPanel>
                 </Border>

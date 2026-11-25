@@ -11,8 +11,11 @@
     <ApplicationIcon>Assets/Bam.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <DefineConstants Condition="'$(EnableBamDemo)' == 'true'">$(DefineConstants);BAM_DEMO</DefineConstants>
+    <DefineConstants Condition="'$(EnableBamVerification)' == 'true'">$(DefineConstants);BAM_VERIFICATION</DefineConstants>
     <OutputPath Condition="'$(EnableBamDemo)' == 'true'">bin/demo/$(Configuration)/</OutputPath>
     <IntermediateOutputPath Condition="'$(EnableBamDemo)' == 'true'">obj/demo/$(Configuration)/</IntermediateOutputPath>
+    <OutputPath Condition="'$(EnableBamVerification)' == 'true'">bin/verification/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(EnableBamVerification)' == 'true'">obj/verification/$(Configuration)/</IntermediateOutputPath>
   </PropertyGroup>
   <ItemGroup>
     <Using Remove="System.Drawing" />
@@ -20,6 +23,8 @@
     <Resource Include="Assets/Bam.ico" />
     <InternalsVisibleTo Include="BAM.Desktop.Tests" />
     <ProjectReference Include="../BAM.Core/BAM.Core.csproj" />
+    <ProjectReference Include="../BAM.Adapters/BAM.Adapters.csproj" />
+    <ProjectReference Include="../BAM.Infrastructure/BAM.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="WPF-UI" />
     <PackageReference Include="CommunityToolkit.Mvvm" />

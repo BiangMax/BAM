@@ -7,9 +7,9 @@ internal enum ThemeChoice { Dark, Light, System }
 
 internal sealed record DesktopPreferences(
     int SchemaVersion = 1, ThemeChoice Theme = ThemeChoice.Dark, bool ReduceMotion = false,
-    bool CloseToTray = false, bool TrayIntroSeen = false);
+    bool CloseToTray = false, bool TrayIntroSeen = false, bool CollectResources = true);
 
-internal sealed class SettingsStore(bool isDemo, string? file = null)
+internal sealed class SettingsStore(bool isDemo, string? file = null, bool sessionOnly = false)
 {
     private readonly string _file = file ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM", "settings.json");
@@ -47,7 +47,7 @@ internal sealed class SettingsStore(bool isDemo, string? file = null)
 
     public Task<string?> QueueSave(DesktopPreferences settings)
     {
-        if (isDemo || !_canWrite) return Task.FromResult<string?>(null);
+        if (isDemo || sessionOnly || !_canWrite) return Task.FromResult<string?>(null);
         return _pending = SaveAfterAsync(_pending, settings);
     }
 
