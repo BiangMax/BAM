@@ -1,0 +1,15 @@
+name: Windows build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore BAM.slnx --locked-mode
+      - run: dotnet build BAM.slnx -c Release --no-restore
+      - run: dotnet test BAM.slnx -c Release --no-build --no-restore

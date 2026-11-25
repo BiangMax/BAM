@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BAM.Core/BAM.Core.csproj" />
+    <Project Path="src/BAM.Desktop/BAM.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BAM.Tests/BAM.Tests.csproj" />
+  </Folder>
+</Solution>
