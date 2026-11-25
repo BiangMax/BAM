@@ -128,6 +128,8 @@ public sealed partial class MaaEndTaskObserver(ITaskLogSource logs, TimeProvider
                 ReadString(body, "entry") is not { Length: > 0 and <= 256 } taskEntry ||
                 ReadString(body, "uuid") is not { Length: > 0 and <= 256 } scope)
                 return false;
+            if (body.TryGetProperty("reason", out var reason) && reason.ValueKind != JsonValueKind.String)
+                return false;
             var state = (kind, ReadString(body, "reason")) switch
             {
                 ("Starting", null) => GameTaskState.Running,

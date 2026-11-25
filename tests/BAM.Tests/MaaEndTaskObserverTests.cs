@@ -27,6 +27,16 @@ public sealed class MaaEndTaskObserverTests
     }
 
     [Fact]
+    public async Task MalformedReasonDoesNotEstablishATaskStart()
+    {
+        var rig = new Rig();
+        await rig.Poll();
+        var malformed = rig.Event("Starting", "fixture").Replace("\"reason\":\"fixture\"", "\"reason\":42", StringComparison.Ordinal);
+        Assert.Equal(GameTaskState.Unknown, (await rig.Poll([malformed])).Task);
+        Assert.Equal(GameTaskState.Unknown, (await rig.Poll([rig.Event("Succeeded", "completed")])).Task);
+    }
+
+    [Fact]
     public async Task IgnoresHistoricalAndForeignStartsAndRequiresTheSameTaskForTerminal()
     {
         var rig = new Rig();
