@@ -7,7 +7,8 @@ using Wpf.Ui.Controls;
 
 namespace BAM.Desktop.Data;
 
-internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalog catalog) : IDesktopData, IDisposable
+internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalog catalog,
+    MaaEndTaskObserver? maaEndTasks = null) : IDesktopData, IDisposable
 {
     private readonly ConditionalWeakTable<byte[], BitmapSource> _icons = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -53,6 +54,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             {
                 var options = Volatile.Read(ref _options);
                 var frame = await monitor.SampleAsync(options.Collect, token).ConfigureAwait(false);
+                if (maaEndTasks is not null)
+                    frame = await maaEndTasks.ObserveAsync(frame, token).ConfigureAwait(false);
                 var items = frame.Programs.Select(ToScript).ToArray();
                 var events = monitor.Events;
                 await dispatch(() => Publish(frame, items, events)).ConfigureAwait(false);
@@ -206,14 +209,15 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         var available = new[] { (ProgramAction.Start, "启动"), (ProgramAction.Activate, "打开窗口"),
             (ProgramAction.Close, "正常关闭"), (ProgramAction.Restart, "重启"), (ProgramAction.Force, "强制结束") }
             .Where(action => actions.Contains(action.Item1)).Select(action => action.Item2).ToArray();
-        return new(program.Name, game, status.Metadata.Version, symbol, tone, status.Process, GameTaskState.Unsupported,
+        return new(program.Name, game, status.Metadata.Version, symbol, tone, status.Process, status.Task,
             program.InstallDirectory, program.Entry.WorkingDirectory, program.Entry.Arguments.Length == 0 ? "—" : program.Entry.Arguments,
-            $"{windowDetail}\n{(available.Length == 0 ? "暂无可用控制操作" : string.Join("、", available))} · 未接入任务检测")
+            $"{windowDetail}\n{(available.Length == 0 ? "暂无可用控制操作" : string.Join("、", available))} · {status.TaskHint ?? "未接入任务检测"}")
         {
             Installation = program,
             ActualIcon = status.Metadata.Icon is { } bytes ? _icons.GetValue(bytes, DecodeIcon) : null,
             VersionDetail = status.Metadata.VersionDetail,
             Issue = status.Issue,
+            TaskHint = status.TaskHint,
             Identity = status.Worker?.Identity,
             WindowHandle = window?.Handle ?? 0,
             CanStart = actions.Contains(ProgramAction.Start),

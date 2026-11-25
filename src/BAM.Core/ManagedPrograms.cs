@@ -29,7 +29,7 @@ public sealed record ProgramInstallation(Guid Id, string Name, ProgramKind Kind,
 }
 
 public sealed record ProgramMetadata(string Version, string VersionDetail, byte[]? Icon, bool EntryAvailable,
-    string? Issue, bool WorkerBindingValid = true);
+    string? Issue, bool WorkerBindingValid = true, string? ProductVersion = null, string? ResourceVersion = null);
 
 public sealed record ProgramWindow(nint Handle, string Title, WindowState State, bool Responding);
 
@@ -41,7 +41,8 @@ public sealed record ProcessScan(bool Complete, IReadOnlySet<string> UnreadableN
 
 public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMetadata Metadata, ProcessState Process,
     WorkerSnapshot? Worker, double? Cpu, double? WorkingSetMiB, TimeSpan? Uptime, string? Issue,
-    IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false);
+    IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false,
+    GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null);
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
     double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms);

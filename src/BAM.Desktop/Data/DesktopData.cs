@@ -26,6 +26,7 @@ internal sealed record ScriptItem(
     public ImageSource? ActualIcon { get; init; }
     public string? VersionDetail { get; init; }
     public string? Issue { get; init; }
+    public string? TaskHint { get; init; }
     public ProcessIdentity? Identity { get; init; }
     public nint WindowHandle { get; init; }
     public bool CanStart { get; init; }
@@ -61,8 +62,10 @@ internal sealed record ScriptItem(
         ProcessState.ExitedUnexpectedly => Tone.Warning,
         _ => Tone.Neutral
     };
+    public string TaskScopeLabel => TaskHint is not null && Task != GameTaskState.Unsupported ? "框架任务" : "游戏任务";
     public string TaskLabel => Task switch
     {
+        GameTaskState.Unsupported when TaskHint is not null => "版本不支持",
         GameTaskState.Unsupported => "未接入任务检测",
         GameTaskState.Idle => "空闲",
         GameTaskState.Starting => "正在启动",

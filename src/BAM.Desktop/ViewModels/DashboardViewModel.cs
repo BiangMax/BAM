@@ -42,6 +42,12 @@ internal sealed partial class DashboardViewModel : ObservableObject
     public string ResourceHint => HasResourceSource ? ChartScope : "等待接入进程采样";
     public string ProcessHint => _lastFrame is { UnknownPrograms: > 0 } frame
         ? $"{frame.UnknownPrograms} 个安装待确认" : "软件进程";
+    public string TaskCount => _lastFrame?.Programs.Count(program => program.Task == GameTaskState.Running) is > 0 and var count
+        ? count.ToString() : "—";
+    public string TaskSummary => _lastFrame?.Programs.Any(program => program.Task == GameTaskState.Running) == true
+        ? "已确认执行中的框架任务"
+        : _lastFrame?.Programs.Any(program => program.Task != GameTaskState.Unsupported) == true
+            ? "暂无已确认执行中的框架任务" : "暂无可检测任务";
     public string CpuScope => CoverageHint(_lastFrame?.CpuCoverage);
     public string MemoryScope => CoverageHint(_lastFrame?.MemoryCoverage);
     private string CoverageHint(int? covered) => _lastFrame is { ConfirmedWorkers: > 0 } frame &&
@@ -84,6 +90,8 @@ internal sealed partial class DashboardViewModel : ObservableObject
         }
         OnPropertyChanged(nameof(ProcessCount));
         OnPropertyChanged(nameof(ProcessHint));
+        OnPropertyChanged(nameof(TaskCount));
+        OnPropertyChanged(nameof(TaskSummary));
         OnPropertyChanged(nameof(CpuScope));
         OnPropertyChanged(nameof(MemoryScope));
         var hadData = History.HasData;

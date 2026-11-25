@@ -23,8 +23,8 @@
                     <local:ToneBadge Text="{Binding Script.ProcessLabel}" Tone="{Binding Script.ProcessTone}" ToolTip="{Binding Script.OperationHint}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="游戏任务" Style="{StaticResource Bam.Muted}"/>
-                    <local:ToneBadge Text="{Binding Script.TaskLabel}" Tone="{Binding Script.TaskTone}"/>
+                    <TextBlock Text="{Binding Script.TaskScopeLabel}" Style="{StaticResource Bam.Muted}"/>
+                    <local:ToneBadge Text="{Binding Script.TaskLabel}" Tone="{Binding Script.TaskTone}" ToolTip="{Binding Script.TaskHint}"/>
                 </StackPanel>
             </Grid>
 

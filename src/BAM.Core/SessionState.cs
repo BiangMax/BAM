@@ -71,6 +71,7 @@ public sealed class SessionState
 
     private readonly DateTimeOffset _openedAt;
     public Guid Id { get; } = Guid.NewGuid();
+    public DateTimeOffset OpenedAt => _openedAt;
     public ObservationStream<ProcessState> Process { get; }
     public ObservationStream<WindowState> Window { get; }
     public ObservationStream<GameTaskState> GameTask { get; }

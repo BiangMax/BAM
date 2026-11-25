@@ -127,7 +127,8 @@ public sealed class InstallationCatalog(IProgramFiles files)
         if (product is not null) parts.Add($"{(program.Kind == ProgramKind.MaaEnd ? "MXU GUI" : "程序")} {product}");
         if (resource is not null) parts.Add($"资源 {resource}");
         if (bundle is not null) parts.Add($"安装清单 {bundle}");
-        return new(version, parts.Count == 0 ? "版本未知" : string.Join(" · ", parts), icon, issue is null, issue);
+        return new(version, parts.Count == 0 ? "版本未知" : string.Join(" · ", parts), icon, issue is null, issue,
+            ProductVersion: product, ResourceVersion: resource);
     }
 
     public static bool Overlaps(ProgramInstallation left, ProgramInstallation right) =>

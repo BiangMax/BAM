@@ -17,7 +17,11 @@ internal static class WindowsImagePath
     public static string Resolve(string path)
     {
         using var handle = CreateFile(path, 0, 7, 0, 3, 0x02000000, 0);
-        if (handle.IsInvalid) return path;
+        return handle.IsInvalid ? path : Resolve(handle) ?? path;
+    }
+
+    public static string? Resolve(SafeFileHandle handle)
+    {
         var buffer = new StringBuilder(512);
         var length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
         if (length >= buffer.Capacity && length < 32768)
@@ -25,7 +29,7 @@ internal static class WindowsImagePath
             buffer.EnsureCapacity((int)length + 1);
             length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
         }
-        if (length == 0 || length >= buffer.Capacity) return path;
+        if (length == 0 || length >= buffer.Capacity) return null;
         var resolved = buffer.ToString();
         return resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) ? @"\\" + resolved[8..] :
             resolved.StartsWith(@"\\?\", StringComparison.Ordinal) ? resolved[4..] : resolved;

@@ -76,6 +76,11 @@ public partial class App : Application
             services.AddSingleton(TimeProvider.System);
             services.AddSingleton<InstallationCatalog>();
             services.AddSingleton<ProgramMonitor>();
+            if (e.Args.Contains("--observe-maaend-tasks", StringComparer.Ordinal))
+            {
+                services.AddSingleton<ITaskLogSource, WindowsTaskLogSource>();
+                services.AddSingleton<MaaEndTaskObserver>();
+            }
             services.AddSingleton<IDesktopData, LiveDesktopData>();
         }
         if (demo is null && sessionOnly)

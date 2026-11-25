@@ -36,7 +36,7 @@
                     </Style>
                 </local:ResponsivePanel.Style>
                 <local:MetricTile Label="已启动 / 已管理" Symbol="Apps24" Value="{Binding ProcessCount}" Detail="{Binding ProcessHint}"/>
-                <local:MetricTile Label="游戏任务检测" Symbol="Target24" Value="—" Detail="暂无可检测任务"/>
+                <local:MetricTile Label="任务观测" Symbol="Target24" Value="{Binding TaskCount}" Detail="{Binding TaskSummary}"/>
                 <local:MetricTile Label="脚本 CPU" Symbol="TopSpeed24" Value="{Binding Cpu}" Detail="{Binding CpuScope}"/>
                 <local:MetricTile Label="工作集内存" Symbol="Database24" Value="{Binding Memory}" Detail="{Binding MemoryScope}"/>
             </local:ResponsivePanel>
