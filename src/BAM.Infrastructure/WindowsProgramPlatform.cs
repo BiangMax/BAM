@@ -84,8 +84,7 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
                             if (IsLive(handle)) found.Add(new(identity, cpu, memory, null, null, false));
                             continue;
                         }
-                        var integrity = ReadIntegrity(handle);
-                        bool? controlAllowed = integrity is not null && _integrity is not null ? integrity <= _integrity : null;
+                        var controlAllowed = CanControlWindow(handle);
                         using var terminate = OpenProcess(Terminate | Query | Synchronize, false, identity.Pid);
                         var canTerminate = !terminate.IsInvalid && IsLive(handle) &&
                             identity.Equals(ReadIdentity(terminate, identity.Pid, buffer, out _));
@@ -193,9 +192,8 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
 
         if (window is null || !OwnsWindow(window.Handle, identity.Pid))
             return new(CommandStatus.IdentityChanged, "原窗口已改变。");
-        var integrity = ReadIntegrity(handle);
-        if (integrity is null || _integrity is null || integrity > _integrity)
-            return new(CommandStatus.Denied, "当前权限无法控制该窗口。");
+        if (CommandPolicy.GetWindowControlRestriction(CanControlWindow(handle)) is { } restriction)
+            return new(CommandStatus.Denied, restriction);
         if (!IsLive(handle) || !OwnsWindow(window.Handle, identity.Pid))
             return new(CommandStatus.IdentityChanged, "原窗口或进程已改变。");
         if (action == ProgramAction.Close)
@@ -213,6 +211,9 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
             return new(CommandStatus.Completed, "Windows 已接受前台激活。");
         return new(CommandStatus.Denied, "Windows 未允许前台切换，请使用任务栏打开窗口。");
     }
+
+    private bool? CanControlWindow(SafeProcessHandle process) =>
+        _integrity is { } current && ReadIntegrity(process) is { } target ? target <= current : null;
 
     private static CommandResult NativeError(int code, string action) => code switch
     {

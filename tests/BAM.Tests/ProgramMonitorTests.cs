@@ -57,6 +57,27 @@ public sealed class ProgramMonitorTests
         Assert.Null((await rig.Monitor.SampleAsync(true, Token)).Cpu);
     }
 
+    [Theory]
+    [InlineData(null, "无法读取 BAM 或目标进程令牌的完整性级别，窗口控制暂不可用。")]
+    [InlineData(false, "目标窗口的完整性级别高于 BAM，当前权限无法控制。")]
+    public async Task WindowRestrictionExplainsTheEvidenceAndPreservesIndependentCapabilities(bool? allowed, string reason)
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        rig.Platform.Workers = [rig.Worker(17, 1) with { WindowControlAllowed = allowed }];
+        await rig.Monitor.SampleAsync(true, Token);
+        rig.Clock.Tick();
+        rig.Platform.Workers = [rig.Worker(17, 1.25) with { WindowControlAllowed = allowed }];
+        var frame = await rig.Monitor.SampleAsync(true, Token);
+        var app = Assert.Single(frame.Programs);
+        Assert.Equal(ProcessState.Running, app.Process);
+        Assert.Equal(reason, app.Issue);
+        Assert.Equal(25d / Environment.ProcessorCount, app.Cpu);
+        Assert.Equal(2, app.WorkingSetMiB);
+        Assert.Equal([ProgramAction.Force], app.Actions);
+        Assert.Single(frame.EventHistory!.Entries, item => item.Detail == reason);
+    }
+
     [Fact]
     public async Task UnreadableOrMultipleCandidatesBlockStartAndDestructiveActions()
     {

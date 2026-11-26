@@ -231,7 +231,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     if (_emulatorSubmitted.Contains(program.Id)) issue ??= EmulatorAlreadySubmitted;
                     else actions.Add(ProgramAction.StartWithEmulator);
                 }
-                if (worker is { Window: not null, WindowControlAllowed: not true }) issue ??= "当前权限无法管理此窗口。";
+                if (worker is { Window: not null }) issue ??= CommandPolicy.GetWindowControlRestriction(worker.WindowControlAllowed);
                 if (worker is { Window: { Responding: false } }) issue ??= "窗口无响应。";
                 if (worker is { Window: null }) issue ??= "未发现可管理的窗口。";
                 if (worker is { CanTerminate: false } && issue is null) issue = "当前权限无法强制结束此实例。";

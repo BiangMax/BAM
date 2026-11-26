@@ -5,6 +5,13 @@ public sealed record CommandResult(CommandStatus Status, string? Reason = null);
 
 public static class CommandPolicy
 {
+    public static string? GetWindowControlRestriction(bool? allowed) => allowed switch
+    {
+        true => null,
+        false => "目标窗口的完整性级别高于 BAM，当前权限无法控制。",
+        null => "无法读取 BAM 或目标进程令牌的完整性级别，窗口控制暂不可用。"
+    };
+
     // Authorization decision only. A future executor must retain/revalidate the same process handle.
     public static CommandResult CheckTarget(ScriptDefinition script, CapabilityKind requested,
         Capability capability, ProcessIdentity? selected, ProcessInspection current)

@@ -21,7 +21,7 @@
 | R-05 / P1 | `LocalProgramStore.LoadAsync` 将短暂共享冲突、拒绝访问与 JSON 损坏同样处理。文件重新可写后，自动发现可能用不完整列表替换有效配置。 | 只有缺失及内容损坏走可恢复写入路径。临时独占真实文件、解除占用后尝试保存的回归通过；原记录仍完整。 | 已解除 |
 | R-06 / P2 | 快捷方式独立修改参数或当前目录时，既有安装保持上次保存值。 | 已补充独立继承和确认时快照，已有配置沿用保存值。[补充复核](#启动流程补充复核) | 已解除 |
 | R-07 / P2 | 启动调用可能已经派发，调用方却丢失结果。清理挂起标记后再次点击可能重复派发。 | 已区分进入平台前的取消、确定拒绝和提交结果未知，并加入防重复回归。[补充复核](#启动流程补充复核) | 已解除 |
-| R-08 / P3 | `WindowControlAllowed` 保留未知，界面把令牌不可读与目标完整性较高显示为同一权限提示。 | 源码确认。操作降级正确，原因文案留待区分。 | 否 |
+| R-08 / P3 | `WindowControlAllowed` 保留未知，界面把令牌不可读与目标完整性较高显示为同一权限提示。 | 观测和 Win32 控制拒绝复用同一原因映射。两种条件的夹具均验证 CPU、工作集及独立的强制结束能力。 | 已解除 |
 | R-09 / P2 | `WindowsProgramFiles.LocalPath` 在规范化之前检查 UNC 前缀，Windows 支持的另一种分隔形式可在检查后变为网络路径。 | 先规范化再拒绝网络/设备前缀。源码核对；没有向网络共享发起专项探测。 | 已关闭 |
 
 控制与证据实现见 [ProgramMonitor](../src/BAM.Adapters/ProgramMonitor.cs)、[InstallationCatalog](../src/BAM.Adapters/InstallationCatalog.cs)、[WindowsProgramPlatform](../src/BAM.Infrastructure/WindowsProgramPlatform.cs)。恢复、存储和确认见 [LocalProgramStore](../src/BAM.Infrastructure/LocalProgramStore.cs)、[组合根](../src/BAM.Desktop/App.xaml.cs)和[桌面命令](../src/BAM.Desktop/ViewModels/ShellViewModel.cs)。
