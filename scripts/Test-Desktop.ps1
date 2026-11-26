@@ -7,13 +7,15 @@ param(
     [string] $CaptureDirectory = 'artifacts/screenshots',
     [ValidateSet('Both', 'Tray')] [string] $OwnLoadPhase = 'Both',
     [ValidateRange(10, 600)] [int] $OwnLoadSeconds = 600,
+    [switch] $CheckMonitorDpi,
+    [switch] $RequireForegroundChecks,
     [switch] $CheckLogStress,
     [switch] $CheckLogReplay
 )
 
 $ErrorActionPreference = 'Stop'
-if (($CheckLogStress -or $CheckLogReplay) -and $Output -ne 'VerificationEmpty') {
-    throw 'Log checks require an isolated VerificationEmpty build.'
+if (($CheckMonitorDpi -or $RequireForegroundChecks -or $CheckLogStress -or $CheckLogReplay) -and $Output -ne 'VerificationEmpty') {
+    throw 'Monitor, foreground and log checks require an isolated VerificationEmpty build.'
 }
 if ($CheckLogReplay -and $CheckLogStress) { throw 'Run log replay and stress separately.' }
 $root = Split-Path $PSScriptRoot
@@ -357,6 +359,61 @@ try {
         }
         $batch = Wait-Element $window 'LaunchPaired' -ById
         if ($batch.Current.IsEnabled) { throw 'Batch launch was enabled with no configured pairs.' }
+        $chartOption = Wait-Element $window 'ChartMemory' -ById
+        if ($chartOption.Current.Name -ne '内存') { throw 'The chart selector did not expose its accessible name.' }
+        $selectionPattern = [Windows.Automation.SelectionItemPattern]::Pattern
+        $chartSelection = $chartOption.GetCurrentPattern($selectionPattern)
+        [void](Wait-Element $window 'CPU · %')
+        $chartSelection.Select()
+        Wait-For { $chartSelection.Current.IsSelected } 'The memory metric did not become selected.'
+        [void](Wait-Element $window '工作集 · MiB')
+        Write-Output 'PASS Chart selection and units through UI Automation.'
+        if ($CheckMonitorDpi) {
+            $monitorCount = [BamSmokeWindow]::MonitorCount()
+            $visited = for ($monitor = 0; $monitor -lt $monitorCount; $monitor++) {
+                [BamSmokeWindow]::MoveToMonitor($handle, $primary.Id, $monitor)
+                [void](Wait-Element $window '尚未添加脚本')
+                $chartOption = Wait-Element $window 'ChartMemory' -ById
+                $chartSelection = $chartOption.GetCurrentPattern($selectionPattern)
+                $unit = Wait-Element $window '工作集 · MiB'
+                Wait-For { $chartSelection.Current.IsSelected -and -not $chartOption.Current.IsOffscreen -and
+                    $chartOption.Current.BoundingRectangle.Width -gt 0 -and -not $unit.Current.IsOffscreen } 'The selected memory metric or its unit was not visible on the monitor.'
+                $windowDpi = [BamSmokeWindow]::GetDpiForWindow($handle)
+                if ($windowDpi -eq 0) { throw 'Could not read the owned window DPI.' }
+                $windowDpi
+            }
+            Write-Output "PASS Owned overview and selected metric on $monitorCount monitor(s): $($visited -join ', ') DPI."
+            if ($monitorCount -lt 2) { Write-Output 'SKIP Cross-monitor movement: only one monitor is available.' }
+            elseif (@($visited | Sort-Object -Unique).Count -lt 2) { Write-Output 'SKIP Mixed-DPI movement: the visited monitors use the same scale.' }
+        }
+        $keyboardChecked = $false
+        if ([BamSmokeWindow]::IsForeground($handle)) {
+            $cpuOption = Wait-Element $window 'ChartCpu' -ById
+            $cpuSelection = $cpuOption.GetCurrentPattern($selectionPattern)
+            $cpuOption.SetFocus()
+            Wait-For { $cpuOption.Current.HasKeyboardFocus -or -not [BamSmokeWindow]::IsForeground($handle) } 'The CPU selector did not receive keyboard focus.'
+            if ([BamSmokeWindow]::TryPressForegroundKey($handle, $primary.Id, 0x20)) {
+                Wait-For { $cpuSelection.Current.IsSelected -or -not [BamSmokeWindow]::IsForeground($handle) } 'Space did not select the CPU metric in the foreground.'
+                $keyboardChecked = $cpuSelection.Current.IsSelected
+            }
+        }
+        if ($keyboardChecked) {
+            [void](Wait-Element $window 'CPU · %')
+            Write-Output 'PASS Chart selection using Space in the foreground.'
+        }
+        else { Write-Output 'SKIP Space check without foreground keyboard focus.' }
+        $menuChecked = $false
+        if ([BamSmokeWindow]::IsForeground($handle)) {
+            [BamSmokeWindow]::OpenSystemMenu($handle, $primary.Id)
+            try {
+                Wait-For { [BamSmokeWindow]::IsSystemMenuOpen($handle, $primary.Id) -or
+                    -not [BamSmokeWindow]::IsForeground($handle) } 'The owned window System menu did not open.'
+                $menuChecked = [BamSmokeWindow]::IsSystemMenuOpen($handle, $primary.Id)
+            } finally { [BamSmokeWindow]::DismissSystemMenu($handle, $primary.Id) }
+            Wait-For { -not [BamSmokeWindow]::IsSystemMenuOpen($handle, $primary.Id) } 'The owned window System menu did not close.'
+        }
+        if ($menuChecked) { Write-Output 'PASS Native System menu in the foreground.' }
+        else { Write-Output 'SKIP Native System menu check without the owned window in the foreground.' }
         Select-Item $nav '设置'
         $valuePattern = [Windows.Automation.ValuePattern]::Pattern
         $poll = (Wait-Element $window 'MaaGetTaskAddress' -ById).GetCurrentPattern($valuePattern)
@@ -370,6 +427,18 @@ try {
             $report.Current.Value -eq 'http://127.0.0.1:19373/reportStatus' } 'Loopback addresses did not follow the selected port.'
         [void](Wait-Element $window '已停止。')
         Write-Output 'PASS Confirmed empty overview, add actions, and loopback addresses with listening off.'
+        if ($CheckMonitorDpi) {
+            if ((Toggle-Setting $window 'CloseToTray') -ne 'On') { throw 'Close-to-tray did not enable in the isolated profile.' }
+            if (-not $primary.CloseMainWindow()) { throw 'Closing to tray failed.' }
+            Wait-For { -not [BamSmokeWindow]::IsWindowVisible($handle) } 'BAM did not hide to tray.'
+            Test-Duplicate $primary $handle
+            Select-Item $nav '设置'
+            if ((Toggle-Setting $window 'CloseToTray') -ne 'Off') { throw 'Close-to-tray did not disable.' }
+            Write-Output 'PASS Own tray hide and activation on the visited monitor.'
+        }
+        if ($RequireForegroundChecks -and (-not $keyboardChecked -or -not $menuChecked)) {
+            throw 'Required foreground checks were skipped because the owned BAM window did not retain the foreground.'
+        }
     } elseif ($Output -eq 'OwnLoad') {
         [void](Wait-Element $window '资源采样夹具')
         $checkSamples = {

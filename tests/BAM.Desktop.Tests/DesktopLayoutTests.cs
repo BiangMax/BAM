@@ -1,5 +1,7 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -29,11 +31,11 @@ public sealed class DesktopLayoutTests
             {
                 var app = new BAM.Desktop.App();
                 app.InitializeComponent();
-                foreach (var theme in new[] { "Dark", "Light" })
+                foreach (var theme in new[] { "Dark", "Light", "HighContrast" })
                 {
                     var palette = new ResourceDictionary { Source = new Uri($"/BAM;component/Themes/{theme}.xaml", UriKind.Relative) };
                     app.Resources.MergedDictionaries.Add(palette);
-                    foreach (var dpi in new[] { 96, 144 })
+                    foreach (var dpi in new[] { 96, 120, 144, 192 })
                     {
                         AssertCentered(new Button { Content = "打开窗口", Style = (Style)app.FindResource("Bam.PrimaryButton") }, dpi);
                         AssertCentered(new Button { Content = "启动模拟器和软件" }, dpi);
@@ -112,11 +114,17 @@ public sealed class DesktopLayoutTests
         var model = new ScriptCardViewModel(item);
         var card = new ScriptCard { DataContext = model };
         Layout(card, 260, 380);
-        var button = Assert.Single(FindAll<Button>(card), control => System.Windows.Automation.AutomationProperties.GetAutomationId(control) == "ScriptEmulatorAction");
+        var button = Assert.Single(FindAll<Button>(card), control => AutomationProperties.GetAutomationId(control) == "ScriptEmulatorAction");
         Assert.True(button.IsEnabled);
+        Assert.True(button.Focusable);
+        Assert.True(button.IsTabStop);
+        var peer = Assert.IsAssignableFrom<ButtonAutomationPeer>(FrameworkElementAutomationPeer.CreatePeerForElement(button));
+        Assert.Equal("启动模拟器和软件", peer.GetName());
+        Assert.Equal(item.EmulatorHint, peer.GetHelpText());
         model.Script = item with { Process = ProcessState.Starting, CanStartWithEmulator = false,
             PairedStartup = new(PairedStartupPhase.Waiting, 20) };
         Assert.Equal("20 秒后启动脚本", button.Content);
+        Assert.Equal("20 秒后启动脚本", peer.GetName());
         Assert.False(button.IsEnabled);
         model.Script = model.Script with { PairedStartup = new(PairedStartupPhase.Waiting, 1) };
         Assert.Equal("1 秒后启动脚本", button.Content);

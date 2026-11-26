@@ -25,6 +25,7 @@ public partial class MainWindow : FluentWindow
     private readonly ThemeController _theme;
     private readonly LiveDesktopData? _live;
     private readonly Func<Task> _prepareExit;
+    private HwndSource? _windowSource;
     private TrayIcon? _tray;
     private bool _exiting;
     private bool _exitPrepared;
@@ -53,6 +54,8 @@ public partial class MainWindow : FluentWindow
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        _windowSource = PresentationSource.FromVisual(this) as HwndSource;
+        _windowSource?.AddHook(ShowKeyboardSystemMenu);
         _theme.Attach(this);
 
         var area = System.Windows.Forms.Screen.FromHandle(new WindowInteropHelper(this).Handle).WorkingArea;
@@ -67,6 +70,21 @@ public partial class MainWindow : FluentWindow
 #if BAM_DEMO || BAM_VERIFICATION
         if (_captureDirectory is not null) _capture = new DemoCapture(this, Shell, _captureDirectory);
 #endif
+    }
+
+    private IntPtr ShowKeyboardSystemMenu(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int systemCommand = 0x0112;
+        const int keyboardMenu = 0xF100;
+        const int space = 0x20;
+        if (message != systemCommand || (wParam.ToInt64() & 0xFFF0) != keyboardMenu || lParam.ToInt64() != space ||
+            !IsVisible || WindowState == WindowState.Minimized || _windowSource?.CompositionTarget is not { } target)
+            return IntPtr.Zero;
+
+        handled = true;
+        var anchor = Shell.PointToScreen(new Point(0, Shell.RowDefinitions[0].ActualHeight));
+        SystemCommands.ShowSystemMenu(this, target.TransformFromDevice.Transform(anchor));
+        return IntPtr.Zero;
     }
 
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
@@ -145,6 +163,8 @@ public partial class MainWindow : FluentWindow
     protected override void OnClosed(EventArgs e)
     {
         _settings.PropertyChanged -= SettingsChanged;
+        _windowSource?.RemoveHook(ShowKeyboardSystemMenu);
+        _windowSource = null;
 #if BAM_DEMO || BAM_VERIFICATION
         _capture?.Dispose();
 #endif
