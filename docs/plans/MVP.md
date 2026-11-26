@@ -32,6 +32,64 @@ dotnet build src/BAM.Desktop/BAM.Desktop.csproj -c Release --no-restore -p:Enabl
 pwsh -File scripts/Test-Desktop.ps1 -Output OwnLoad
 ```
 
+### 短时稳定性与兼容性验证
+
+2026-11-27 锁定还原和 Release 构建通过，零警告、零错误。132 项常规测试通过，3 项现场用例按条件跳过。两项 Windows 自有进程夹具另外通过，覆盖实际资源读取、进程参数与身份失效。雷电和 MuMu 实机多开归属仍待对应实例运行时验收。
+
+隔离桌面窗口已在双屏间移动，两台显示器均为 144 DPI。总览布局、内存切换控件的键盘焦点和无障碍名称、收起托盘后由次实例唤醒原窗口均通过。WPF 离屏渲染覆盖 100%、125%、150% 和 200%，并套用深色、浅色和高对比资源。真实混合 DPI、系统对比主题、屏幕阅读器播报及 Explorer 重启后的托盘唤起仍待实机验证。
+
+用注入时钟验证 70 秒采样间隔后的首帧不显示无效 CPU 占用，工作集仍显示，随后一次正常间隔即可恢复 CPU。实际系统休眠唤醒待测。8 小时及 24 小时资源趋势验证按所有者要求暂缓。
+
+```powershell
+dotnet build src/BAM.Desktop/BAM.Desktop.csproj -c Release --no-restore -p:EnableBamVerification=true -o artifacts/publish/verification-empty-win-x64
+pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty -CheckMonitorDpi
+```
+
+本轮短时验证增加了原生菜单与日志压力两个切片。隔离窗口从键盘焦点用空格切换到内存指标。首轮 Windows 系统菜单消息未打开菜单，加入窗口专用处理后，原生菜单的打开和关闭通过复测。双屏布局、单实例唤醒和托盘恢复也通过。系统菜单位置按当前窗口的 DPI 换算。[Windows 系统菜单消息](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand) · [WPF 原生菜单](https://learn.microsoft.com/en-us/dotnet/api/system.windows.systemcommands.showsystemmenu?view=windowsdesktop-10.0)
+
+合成文件每秒写入 1,000 行，连续 60 秒，60,000 行按顺序读回。追加一批超过 128 KiB 的记录并模拟独占打开后，读取在解除独占后恢复，分两次完整追上。常规测试确认本地事件文件按容限轮转、最多回放最近 2,000 条，以及日志页在该上限可以筛选。
+
+```powershell
+$env:BAM_LOG_STRESS = '1'
+dotnet test tests/BAM.Desktop.Tests/BAM.Desktop.Tests.csproj -c Release --no-build --no-restore --filter FullyQualifiedName~ShortLogStress
+```
+
+日志页会显示本次回放和当前会话超出 2,000 条上限的较早记录数。日志轮转前已移除的历史数量无法从当前文件还原。运行帧按批发布事件快照，筛选视图一次刷新整批。磁盘预置 2,100 条事件的隔离烟测在 BAM 启动后显示 2,000 条记录、略过 101 条。实时界面夹具以每秒 1,000 条合成事件运行 60 秒，六次筛选与清空探测通过，结束显示保留 2,000 条、略过 58,000 条。复测中从 UI Automation 写入搜索词到读到筛选结果，最慢为 2,270 毫秒，计时包含自动化往返和输入防抖。持续读取原始日志的压力在上面的读取夹具单独验证。这轮锁定还原通过，Release 构建零警告、零错误，134 项常规测试通过，4 项现场或按需用例按条件跳过。
+
+```powershell
+pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty -CheckLogReplay
+pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty -CheckLogStress
+```
+
+### 资源曲线无障碍验证
+
+2026-11-27，Alpha 2 后续开发构建。总览资源曲线获得焦点时提供左右方向键操作说明。方向键选择新样本时发送 UI Automation 通知，包含样本时间、CPU 百分比或工作集 MiB。缺失值沿用「此处缺失样本」。连续按键时通知优先保留最新一条，鼠标查看和后台采样保持静默。[WPF 自动化通知](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.peers.automationpeer.raisenotificationevent?view=windowsdesktop-10.0)
+
+隔离桌面烟测使用自有负载，从曲线的自动化元素收到了左右方向键选择的 CPU 样本和切换指标后的工作集样本，通知内容与可访问说明一致。等待自动采样时未收到曲线通知。受限环境首轮通过曲线断言，随后次实例唤醒超时。正常 Windows 会话复测通过曲线断言、10 秒托盘观测、次实例唤醒和正常退出重开。锁定还原、Release 构建通过，零警告、零错误，134 项常规测试通过，4 项现场或按需用例按条件跳过。
+
+该轮追加的跨屏烟测停在空格键切换。UI Automation 已确认内存按钮获得焦点，空格后工作集标签未出现，诊断时也未能将隔离窗口置于前台。[后续复测](#跨屏与前台键盘复测)
+
+下一步在启用 Windows 讲述人的会话中，将焦点移至总览曲线，按左右方向键并切换 CPU 与内存，听取样本时间和单位，再等待自动采样确认播报节奏。
+
+```powershell
+dotnet build src/BAM.Desktop/BAM.Desktop.csproj -c Release --no-restore -p:EnableBamVerification=true -o artifacts/publish/verification-win-x64
+pwsh -File scripts/Test-Desktop.ps1 -Output OwnLoad -OwnLoadPhase Tray -OwnLoadSeconds 10 -CheckChartAccessibility
+```
+
+### 跨屏与前台键盘复测
+
+2026-11-27，Alpha 2 后续开发构建。隔离空配置窗口在 Windows 前台时验证空格切换指标和原生系统菜单。跨屏时检查内存指标仍选中、选择器可见，并记录每块显示器实际使用的 DPI。前台条件缺失时单独报告键盘与菜单的验证状态，继续检查跨屏布局。[Windows 前台窗口](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getforegroundwindow)
+
+首次诊断发现 Windows 前台属于其他窗口，BAM 在发送空格前已经失去原生键盘焦点。诊断复跑时，BAM 在前台，空格切换立即更新选择项和单位。烟测现先通过 UI Automation 验证指标选择和跨屏布局，再分别报告前台空格和系统菜单结果。要求实际执行这两项时使用 `-RequireForegroundChecks`。
+
+严格复测通过两块 144 DPI 显示器之间的移动，内存指标在两块屏幕上保持选中，选择器和工作集单位均可见。移动后按空格切回 CPU，原生系统菜单开关、托盘唤醒和退出重开通过。默认入口追加了日志回放复测，BAM 缺少前台焦点时明确跳过空格键和系统菜单，仍通过双屏、回放 2,000 条并显示略过 101 条、托盘唤醒和退出重开。两次复测都确认夹具已退出。锁定还原和 Release 构建通过，零警告、零错误，134 项常规测试通过，4 项按条件跳过。
+
+```powershell
+dotnet build src/BAM.Desktop/BAM.Desktop.csproj -c Release --no-restore -p:EnableBamVerification=true -o artifacts/publish/verification-empty-win-x64
+pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty -CheckMonitorDpi -RequireForegroundChecks
+pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty -CheckMonitorDpi -CheckLogReplay
+```
+
 ## 三个脚本的批量启动
 
 从「脚本管理」编辑 MaaEnd、MAA 和 BBchannel 的记录，分别在「模拟器启动」中选择能打开对应实例的 LNK 或 EXE 并设置等待秒数。回到总览点「批量启动」，核对即将启动的配对、参数和工作目录后确认。每组先提交模拟器启动，等待该组设定的时间，再提交脚本启动。预览只列入具备启动条件且已配对的脚本。MAA 如果自身也配置为启动同一个模拟器，先核对那项设置。
