@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -188,7 +189,14 @@ internal sealed class ResourceChart : FrameworkElement
             while (index > 0 && history[index].Position > cursor.Position) index--;
             index = Math.Clamp(index + step, 0, history.Count - 1);
         }
-        SetCursor(history[index]);
+        var point = history[index];
+        if (_cursor != point)
+        {
+            SetCursor(point);
+            if (Inspection is { } inspection && AutomationPeer.ListenerExists(AutomationEvents.Notification))
+                UIElementAutomationPeer.CreatePeerForElement(this)?.RaiseNotificationEvent(AutomationNotificationKind.ActionCompleted,
+                    AutomationNotificationProcessing.MostRecent, inspection, nameof(ResourceChart));
+        }
         args.Handled = true;
     }
 
@@ -225,6 +233,6 @@ internal sealed class ResourceChart : FrameworkElement
 
     private sealed class ChartAutomationPeer(ResourceChart owner) : FrameworkElementAutomationPeer(owner)
     {
-        protected override string GetHelpTextCore() => owner.Inspection ?? base.GetHelpTextCore();
+        protected override string GetHelpTextCore() => owner.Inspection ?? $"使用左右方向键查看采样。{base.GetHelpTextCore()}";
     }
 }

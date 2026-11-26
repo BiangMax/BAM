@@ -9,6 +9,7 @@ param(
     [ValidateRange(10, 600)] [int] $OwnLoadSeconds = 600,
     [switch] $CheckMonitorDpi,
     [switch] $RequireForegroundChecks,
+    [switch] $CheckChartAccessibility,
     [switch] $CheckLogStress,
     [switch] $CheckLogReplay
 )
@@ -18,6 +19,7 @@ if (($CheckMonitorDpi -or $RequireForegroundChecks -or $CheckLogStress -or $Chec
     throw 'Monitor, foreground and log checks require an isolated VerificationEmpty build.'
 }
 if ($CheckLogReplay -and $CheckLogStress) { throw 'Run log replay and stress separately.' }
+if ($CheckChartAccessibility -and $Output -ne 'OwnLoad') { throw 'The chart accessibility check requires the isolated OwnLoad fixture.' }
 $root = Split-Path $PSScriptRoot
 $folder = switch ($Output) {
     Build { 'src/BAM.Desktop/bin/Release/net10.0-windows/win-x64' }
@@ -48,6 +50,11 @@ foreach ($assembly in 'UIAutomationTypes', 'UIAutomationClient') {
 }
 if (-not ('BamSmokeWindow' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'DesktopSmoke.Native.cs')
+}
+if ($CheckChartAccessibility -and -not ('BamSmokeNotifications' -as [type])) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'DesktopSmoke.Notifications.cs') -ReferencedAssemblies @(
+        (Join-Path $runtimeFolder 'UIAutomationTypes.dll'), (Join-Path $runtimeFolder 'UIAutomationClient.dll'),
+        (Join-Path $PSHOME 'ref/System.Runtime.dll'), (Join-Path $PSHOME 'ref/System.Collections.Concurrent.dll'))
 }
 if ($Output -in 'Verification', 'VerificationEmpty', 'OwnLoad') {
     $profile = Join-Path $root ('.local/phase3-desktop-' + [guid]::NewGuid().ToString('N'))
@@ -157,6 +164,46 @@ function Test-Duplicate($Primary, [IntPtr] $Handle) {
     } 'Activation did not restore the primary.'
     $Primary.Refresh()
     if ($Primary.HasExited -or $Primary.MainWindowHandle -ne $Handle) { throw 'Primary window changed.' }
+}
+function Test-ChartAccessibility($Window, [IntPtr] $Handle, [int] $ProcessId) {
+    $plot = Wait-Element $Window '最近 120 秒资源曲线'
+    if ($plot.Current.HelpText -notlike '使用左右方向键查看采样。*') { throw 'The plot did not expose its keyboard instructions.' }
+    $notifications = [BamSmokeNotifications]::new($plot)
+    try {
+        $inspect = {
+            param([int] $Key, [string] $UnitPattern)
+            [BamSmokeWindow]::PressKeyInOwnedWindow($Handle, $ProcessId, $Key)
+            Wait-For { $notifications.Count -gt 0 } 'Keyboard inspection did not raise a UI Automation notification.'
+            $event = $notifications.Take()
+            if ($event.NotificationKind -ne 'ActionCompleted' -or $event.DisplayString -notmatch $UnitPattern -or
+                $event.DisplayString -ne $plot.Current.HelpText -or
+                $event.NotificationProcessing -ne 'MostRecent' -or $event.ActivityId -ne 'ResourceChart') {
+                throw ('Unexpected chart notification: {0}, help text: {1}' -f $event.DisplayString, $plot.Current.HelpText)
+            }
+            $event.DisplayString
+        }
+
+        $plot.SetFocus()
+        Wait-For { $plot.Current.HasKeyboardFocus } 'The chart did not accept keyboard focus.'
+        Start-Sleep -Milliseconds 1500
+        if ($notifications.Count -ne 0) { throw 'Background chart updates announced without keyboard input.' }
+        $latest = & $inspect 0x25 '\d{2}:\d{2}:\d{2} · CPU [\d.,]+%$'
+        $earlier = & $inspect 0x25 '\d{2}:\d{2}:\d{2} · CPU [\d.,]+%$'
+        if ($earlier -eq $latest -or (& $inspect 0x27 '\d{2}:\d{2}:\d{2} · CPU [\d.,]+%$') -ne $latest) {
+            throw 'The arrow keys did not inspect distinct CPU samples in both directions.'
+        }
+
+        $memory = Wait-Element $Window 'ChartMemory' -ById
+        $memory.SetFocus()
+        $memory.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        [void](Wait-Element $Window '工作集 · MiB')
+        $plot.SetFocus()
+        Wait-For { $plot.Current.HasKeyboardFocus } 'The memory chart did not accept keyboard focus.'
+        [void](& $inspect 0x27 '\d{2}:\d{2}:\d{2} · 工作集 [\d.,]+ MiB$')
+        Start-Sleep -Milliseconds 1500
+        if ($notifications.Count -ne 0) { throw 'Chart refresh repeated a previous announcement.' }
+    } finally { $notifications.Dispose() }
+    Write-Output 'PASS Keyboard chart inspection announces CPU and working-set samples through UI Automation. Passive refresh stays quiet.'
 }
 function Measure-OwnedBam([Diagnostics.Process] $Process, [string] $Scenario, [int] $Seconds) {
     $Process.Refresh()
@@ -456,6 +503,10 @@ try {
         & $checkSamples
         $cpu = Wait-Element $window 'ChartCpu' -ById
         $cpu.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        if ($CheckChartAccessibility) {
+            Test-ChartAccessibility $window $handle $primary.Id
+            $cpu.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        }
         if ($OwnLoadPhase -eq 'Both') {
             $scheduler = [Diagnostics.Stopwatch]::StartNew()
             $before = $fixture.TotalProcessorTime
