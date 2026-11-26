@@ -103,14 +103,13 @@ public sealed class LocalProgramStore(string directory, bool sessionOnly = false
 
 public sealed class LocalProgramEventStore(string directory, bool sessionOnly = false) : IProgramEventStore
 {
-    private const int Capacity = 2000;
     private const int MaximumBytes = 1024 * 1024;
     private const int Files = 4;
     private readonly string _file = Path.Combine(directory, "bam.log");
 
-    public async Task<IReadOnlyList<ProgramEvent>> LoadAsync(CancellationToken cancellation)
+    public async Task<ProgramEventHistory> LoadAsync(CancellationToken cancellation)
     {
-        var result = new Queue<ProgramEvent>();
+        var result = new ProgramEventBuffer();
         for (var index = Files - 1; index >= 0; index--)
         {
             var path = PathAt(index);
@@ -127,13 +126,12 @@ public sealed class LocalProgramEventStore(string directory, bool sessionOnly = 
                 {
                     if (JsonSerializer.Deserialize<ProgramEvent>(line) is not { Message: not null, Source: not null,
                         Detail: not null } entry) continue;
-                    if (result.Count == Capacity) result.Dequeue();
-                    result.Enqueue(entry);
+                    result.Add(entry);
                 }
                 catch (JsonException) { }
             }
         }
-        return result.Reverse().ToArray();
+        return result.Snapshot();
     }
 
     public async Task AppendAsync(ProgramEvent entry, CancellationToken cancellation)

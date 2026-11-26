@@ -21,12 +21,11 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private readonly Dictionary<Guid, ProgramAction> _busy = [];
     private readonly HashSet<ProcessIdentity> _expectedExits = [];
     private readonly Dictionary<ProcessIdentity, bool> _awaitingExit = [];
-    private readonly List<ProgramEvent> _events = [];
+    private readonly ProgramEventBuffer _events = new();
     private long? _metadataAt;
     private bool _eventStoreUnavailable;
     private bool _initialized;
     private int _batchActive;
-    public IReadOnlyList<ProgramEvent> Events { get; private set; } = [];
     public string? InstallationReadIssue { get; private set; }
 
     public async Task InitializeAsync(CancellationToken cancellation)
@@ -35,7 +34,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         try
         {
             if (_initialized) return;
-            try { _events.AddRange(await eventStore.LoadAsync(cancellation).ConfigureAwait(false)); }
+            try { _events.Restore(await eventStore.LoadAsync(cancellation).ConfigureAwait(false)); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AddLogFailure(); }
             var (saved, suppressedPaths, notice, readable) = await store.LoadAsync(cancellation).ConfigureAwait(false);
             if (!readable) InstallationReadIssue = notice ?? "无法读取安装配置。";
@@ -267,7 +266,8 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             return new(now, clock.GetElapsedTime(_started, stamp), statuses,
                 resources && unique.Length > 0 && cpuCoverage == unique.Length && unknown == 0 ? unique.Sum(item => item.Cpu) : null,
                 resources && unique.Length > 0 && memoryCoverage == unique.Length && unknown == 0 ? unique.Sum(item => item.WorkingSetMiB) : null,
-                cpuCoverage, memoryCoverage, unique.Length, unknown);
+                cpuCoverage, memoryCoverage, unique.Length, unknown,
+                _events.Snapshot());
         }
         finally { _gate.Release(); }
     }
@@ -630,7 +630,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         CancellationToken cancellation)
     {
         var entry = new ProgramEvent(clock.GetUtcNow(), program?.Id, program?.Name ?? "BAM", severity, message, detail);
-        AddEvent(entry);
+        _events.Add(entry);
         try
         {
             await eventStore.AppendAsync(entry, cancellation).ConfigureAwait(false);
@@ -643,14 +643,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     {
         if (_eventStoreUnavailable) return;
         _eventStoreUnavailable = true;
-        AddEvent(new(clock.GetUtcNow(), null, "BAM", EventSeverity.Warning, "文件日志暂不可用", "本次事件仍保留在运行日志页面。"));
-    }
-
-    private void AddEvent(ProgramEvent entry)
-    {
-        _events.Insert(0, entry);
-        if (_events.Count > 2000) _events.RemoveAt(2000);
-        Events = _events.ToArray();
+        _events.Add(new(clock.GetUtcNow(), null, "BAM", EventSeverity.Warning, "文件日志暂不可用", "本次事件仍保留在运行日志页面。"));
     }
 
     public void Dispose() => _gate.Dispose();

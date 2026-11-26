@@ -68,10 +68,44 @@ public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMeta
     PairedStartupProgress? PairedStartup = null);
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
-    double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms);
+    double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms,
+    ProgramEventHistory? EventHistory = null);
 
 public sealed record ProgramEvent(DateTimeOffset Time, Guid? InstallationId, string Source, EventSeverity Severity,
     string Message, string Detail);
+
+public sealed record ProgramEventHistory(IReadOnlyList<ProgramEvent> Entries, long OlderEntriesExcluded = 0)
+{
+    public const int Capacity = 2000;
+}
+
+public sealed class ProgramEventBuffer
+{
+    private readonly Queue<ProgramEvent> _entries = new(ProgramEventHistory.Capacity);
+    private ProgramEventHistory? _snapshot;
+    private long _olderEntriesExcluded;
+
+    public void Restore(ProgramEventHistory history)
+    {
+        _entries.Clear();
+        _olderEntriesExcluded = history.OlderEntriesExcluded;
+        _snapshot = null;
+        foreach (var entry in history.Entries.Reverse()) Add(entry);
+    }
+
+    public void Add(ProgramEvent entry)
+    {
+        if (_entries.Count == ProgramEventHistory.Capacity)
+        {
+            _entries.Dequeue();
+            _olderEntriesExcluded++;
+        }
+        _entries.Enqueue(entry);
+        _snapshot = null;
+    }
+
+    public ProgramEventHistory Snapshot() => _snapshot ??= new(_entries.Reverse().ToArray(), _olderEntriesExcluded);
+}
 
 public interface IProgramFiles
 {
@@ -108,6 +142,6 @@ public sealed record ProgramStoreLoad(IReadOnlyList<ProgramInstallation> Program
 
 public interface IProgramEventStore
 {
-    Task<IReadOnlyList<ProgramEvent>> LoadAsync(CancellationToken cancellation);
+    Task<ProgramEventHistory> LoadAsync(CancellationToken cancellation);
     Task AppendAsync(ProgramEvent entry, CancellationToken cancellation);
 }

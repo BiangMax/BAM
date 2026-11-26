@@ -234,8 +234,31 @@ public sealed class ProgramMonitorTests
         rig.Platform.Workers = [];
         rig.Platform.Exits.Add(worker.Identity, 23);
         Assert.Equal(ProcessState.ExitedUnexpectedly, (await rig.Monitor.SampleAsync(true, Token)).Programs[0].Process);
-        Assert.Equal(ProcessState.ExitedUnexpectedly, (await rig.Monitor.SampleAsync(true, Token)).Programs[0].Process);
-        Assert.Single(rig.Monitor.Events, item => item.Message == "疑似异常退出");
+        var following = await rig.Monitor.SampleAsync(true, Token);
+        Assert.Equal(ProcessState.ExitedUnexpectedly, following.Programs[0].Process);
+        Assert.Single(following.EventHistory!.Entries, item => item.Message == "疑似异常退出");
+    }
+
+    [Fact]
+    public async Task EventHistoryCountsReplayAndLiveEvictionsInTheSameFrame()
+    {
+        using var rig = new Rig();
+        var logs = Enumerable.Range(0, ProgramEventHistory.Capacity).Reverse().Select(index =>
+            new ProgramEvent(DateTimeOffset.UnixEpoch, null, "BAM", EventSeverity.Information, $"历史记录 {index}", "")).ToArray();
+        rig.Store.History = new(logs, 100);
+        await rig.Monitor.InitializeAsync(Token);
+        var initial = (await rig.Monitor.SampleAsync(false, Token)).EventHistory!;
+        Assert.Equal(101, initial.OlderEntriesExcluded);
+        Assert.Equal(ProgramEventHistory.Capacity, initial.Entries.Count);
+        Assert.Equal("BAM 已启动", initial.Entries[0].Message);
+        Assert.Same(initial, (await rig.Monitor.SampleAsync(false, Token)).EventHistory);
+
+        rig.Platform.Workers = [rig.Worker(17, 1)];
+        var updated = (await rig.Monitor.SampleAsync(false, Token)).EventHistory!;
+        Assert.Equal(102, updated.OlderEntriesExcluded);
+        Assert.Equal("已确认软件运行", updated.Entries[0].Message);
+        Assert.Equal(101, initial.OlderEntriesExcluded);
+        Assert.Equal("BAM 已启动", initial.Entries[0].Message);
     }
 
     [Fact]
@@ -826,6 +849,7 @@ public sealed class ProgramMonitorTests
 
     private sealed class FakeStore : IProgramStore, IProgramEventStore
     {
+        public ProgramEventHistory History = new([]);
         public IReadOnlyList<ProgramInstallation> Programs = [Program];
         public int Saves;
         public IReadOnlyList<string> Suppressed { get; private set; } = [];
@@ -838,8 +862,8 @@ public sealed class ProgramMonitorTests
             Saves++;
             return Task.CompletedTask;
         }
-        Task<IReadOnlyList<ProgramEvent>> IProgramEventStore.LoadAsync(CancellationToken cancellation) =>
-            Task.FromResult<IReadOnlyList<ProgramEvent>>([]);
+        Task<ProgramEventHistory> IProgramEventStore.LoadAsync(CancellationToken cancellation) =>
+            Task.FromResult(History);
         public Task AppendAsync(ProgramEvent entry, CancellationToken cancellation) => Task.CompletedTask;
     }
 }

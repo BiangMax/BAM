@@ -136,7 +136,9 @@
         </Grid>
 
         <DockPanel Grid.Row="4" Margin="{StaticResource Bam.Before.Medium}">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding LimitLabel}" Style="{StaticResource Bam.Muted}"/>
+            <TextBlock DockPanel.Dock="Right" Text="{Binding LimitLabel}" Style="{StaticResource Bam.Muted}"
+                       AutomationProperties.AutomationId="LogRetention"
+                       ToolTip="略过的数量按本次读取的日志文件和本次运行新增的记录统计。"/>
             <TextBlock Text="{Binding CountLabel}" Style="{StaticResource Bam.Muted}"/>
         </DockPanel>
     </Grid>

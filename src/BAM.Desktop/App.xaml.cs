@@ -122,7 +122,12 @@ public partial class App : Application
 #endif
         _live = _services.GetRequiredService<IDesktopData>() as LiveDesktopData;
 #if BAM_VERIFICATION
-        if (_live is not null) _live.RedactDetails = captureArgument >= 0;
+        if (_live is not null)
+        {
+            _live.RedactDetails = captureArgument >= 0;
+            if (verificationProfile is not null && !discover && e.Args.Contains("--verification-log-stress", StringComparer.Ordinal))
+                _live.EnableLogStress();
+        }
 #endif
         window.Show();
         _live?.Start(action => Dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background, cancellation).Task, discover);

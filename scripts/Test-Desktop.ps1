@@ -6,10 +6,16 @@ param(
     [switch] $Capture,
     [string] $CaptureDirectory = 'artifacts/screenshots',
     [ValidateSet('Both', 'Tray')] [string] $OwnLoadPhase = 'Both',
-    [ValidateRange(10, 600)] [int] $OwnLoadSeconds = 600
+    [ValidateRange(10, 600)] [int] $OwnLoadSeconds = 600,
+    [switch] $CheckLogStress,
+    [switch] $CheckLogReplay
 )
 
 $ErrorActionPreference = 'Stop'
+if (($CheckLogStress -or $CheckLogReplay) -and $Output -ne 'VerificationEmpty') {
+    throw 'Log checks require an isolated VerificationEmpty build.'
+}
+if ($CheckLogReplay -and $CheckLogStress) { throw 'Run log replay and stress separately.' }
 $root = Split-Path $PSScriptRoot
 $folder = switch ($Output) {
     Build { 'src/BAM.Desktop/bin/Release/net10.0-windows/win-x64' }
@@ -64,6 +70,7 @@ function Start-Bam {
         $info.ArgumentList.Add($profile)
     }
     if ($Output -in 'VerificationEmpty', 'OwnLoad') { $info.ArgumentList.Add('--verification-skip-discovery') }
+    if ($CheckLogStress) { $info.ArgumentList.Add('--verification-log-stress') }
     if ($Capture) {
         $info.ArgumentList.Add('--capture-dir')
         $info.ArgumentList.Add($screenshots)
@@ -174,6 +181,15 @@ function Measure-OwnLoad($Process, [string] $Scenario, [scriptblock] $Verify) {
 
 $owned = [Collections.Generic.List[Diagnostics.Process]]::new()
 try {
+    if ($CheckLogReplay) {
+        $logs = Join-Path $profile 'logs'
+        [void][IO.Directory]::CreateDirectory($logs)
+        $stamp = [DateTimeOffset]::UtcNow.ToString('O')
+        $rows = for ($index = 1; $index -le 2100; $index++) {
+            @{ Time = $stamp; Source = 'BAM'; Severity = 0; Message = "回放夹具 $index"; Detail = '' } | ConvertTo-Json -Compress
+        }
+        Set-Content -LiteralPath (Join-Path $logs 'bam.log') -Value $rows -Encoding utf8
+    }
     if ($Output -eq 'OwnLoad') {
         $fixturePath = Join-Path $profile 'BamResourceFixture.exe'
         $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -307,6 +323,38 @@ try {
         [void](Wait-Element $window '自动检测')
         [void](Wait-Element $window '手动添加')
         [void](Wait-Element $window '暂无资源采样')
+        if ($CheckLogReplay) {
+            Select-Item $nav '运行日志'
+            [void](Wait-Element $window '2000 条记录')
+            $retention = Wait-Element $window 'LogRetention' -ById
+            if ($retention.Current.Name -notmatch '已略过 101 条') { throw 'Unexpected count after replay and the BAM startup event.' }
+            Write-Output 'PASS On-disk replay retained 2,000 and reported 101 older records omitted after the startup event.'
+            Select-Item $nav '总览'
+        }
+        if ($CheckLogStress) {
+            Select-Item $nav '运行日志'
+            $search = (Wait-Element $window 'LogSearch' -ById).GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+            $retention = Wait-Element $window 'LogRetention' -ById
+            Wait-For { $retention.Current.Name -match '已略过' } 'The log limit count did not update under load.'
+            $probes = [Diagnostics.Stopwatch]::StartNew()
+            $slowest = 0
+            for ($probe = 0; $probe -lt 6; $probe++) {
+                $response = [Diagnostics.Stopwatch]::StartNew()
+                $search.SetValue('合成日志偶数')
+                [void](Wait-Element $window '1000 条记录')
+                $slowest = [Math]::Max($slowest, $response.ElapsedMilliseconds)
+                $search.SetValue('没有匹配的合成编号')
+                [void](Wait-Element $window '没有符合当前筛选条件的记录')
+                $remaining = 10000 * ($probe + 1) - $probes.ElapsedMilliseconds
+                if ($remaining -gt 0) { Start-Sleep -Milliseconds $remaining }
+            }
+            if ($slowest -gt 2500) { throw "Filtering response exceeded 2.5 seconds under load ($slowest ms)." }
+            $search.SetValue('')
+            [void](Wait-Element $window '2000 条记录')
+            Wait-For { $retention.Current.Name -match '已略过 58[^\d]?000 条' } 'Expected 58,000 excluded events after the fixture completed.'
+            Write-Output "PASS Live log snapshots at 1,000 records per second for 60 seconds. Filter response max $slowest ms, retained 2,000, excluded 58,000."
+            Select-Item $nav '总览'
+        }
         $batch = Wait-Element $window 'LaunchPaired' -ById
         if ($batch.Current.IsEnabled) { throw 'Batch launch was enabled with no configured pairs.' }
         Select-Item $nav '设置'

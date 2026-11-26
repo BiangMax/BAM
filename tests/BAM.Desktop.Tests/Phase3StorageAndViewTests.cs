@@ -146,8 +146,8 @@ public sealed class Phase3StorageAndViewTests : IDisposable
 
         public Task SaveAsync(IReadOnlyList<ProgramInstallation> programs, IReadOnlyList<string> suppressedPaths,
             CancellationToken cancellation) => throw new NotSupportedException();
-        Task<IReadOnlyList<ProgramEvent>> IProgramEventStore.LoadAsync(CancellationToken cancellation) =>
-            Task.FromResult<IReadOnlyList<ProgramEvent>>([]);
+        Task<ProgramEventHistory> IProgramEventStore.LoadAsync(CancellationToken cancellation) =>
+            Task.FromResult(new ProgramEventHistory([]));
         public Task AppendAsync(ProgramEvent entry, CancellationToken cancellation) => Task.CompletedTask;
         public IEnumerable<string> FindShortcuts(CancellationToken cancellation) => [];
         public LaunchEntry ReadEntry(string path) => throw new NotSupportedException();
@@ -161,6 +161,26 @@ public sealed class Phase3StorageAndViewTests : IDisposable
         public CommandResult Launch(LaunchEntry entry) => throw new NotSupportedException();
         public CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window) =>
             throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task LogStoreRotatesFilesAndReplaysOnlyTheLatestTwoThousandRecords()
+    {
+        var logs = new LocalProgramEventStore(_directory.FullName);
+        var detail = new string('x', 1500);
+        for (var index = 0; index < 2100; index++)
+            await logs.AppendAsync(new(DateTimeOffset.UnixEpoch.AddSeconds(index), null, "BAM", EventSeverity.Information,
+                $"fixture {index}", detail), Token);
+
+        var files = _directory.GetFiles("bam.log*");
+        Assert.InRange(files.Length, 2, 4);
+        Assert.All(files, file => Assert.InRange(file.Length, 1, 1024 * 1024));
+        await File.AppendAllTextAsync(Path.Combine(_directory.FullName, "bam.log"), "{invalid}\n", Token);
+        var replay = await logs.LoadAsync(Token);
+        Assert.Equal(100, replay.OlderEntriesExcluded);
+        Assert.Equal(2000, replay.Entries.Count);
+        Assert.Equal("fixture 2099", replay.Entries[0].Message);
+        Assert.Equal("fixture 100", replay.Entries[^1].Message);
     }
 
     [Fact]
@@ -190,7 +210,7 @@ public sealed class Phase3StorageAndViewTests : IDisposable
         await File.WriteAllTextAsync(log, "old", Token);
         File.SetLastWriteTimeUtc(log, DateTime.UtcNow.AddDays(-16));
         var logs = new LocalProgramEventStore(_directory.FullName, sessionOnly: true);
-        Assert.Empty(await logs.LoadAsync(Token));
+        Assert.Empty((await logs.LoadAsync(Token)).Entries);
         await logs.AppendAsync(new(DateTimeOffset.UnixEpoch, null, "BAM", EventSeverity.Information, "test", ""), Token);
         Assert.Equal("old", await File.ReadAllTextAsync(log, Token));
 

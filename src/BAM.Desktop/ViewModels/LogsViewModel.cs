@@ -1,7 +1,7 @@
 using System.ComponentModel;
-using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Data;
+using BAM.Core;
 using BAM.Desktop.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,12 +10,11 @@ namespace BAM.Desktop.ViewModels;
 
 internal sealed partial class LogsViewModel : ObservableObject
 {
-    private const int Capacity = 2000;
     private const string AllSources = "全部来源";
     private const string AllLevels = "全部级别";
     private const string ErrorLevel = "错误";
     private readonly IDesktopData _data;
-    private readonly ObservableCollection<LogEntry> _entries;
+    private readonly List<LogEntry> _entries;
     private readonly Dictionary<string, Guid> _sourceIds = new(StringComparer.Ordinal);
     private IReadOnlyList<LogEntry> _snapshot;
 
@@ -30,7 +29,7 @@ internal sealed partial class LogsViewModel : ObservableObject
     {
         _data = data;
         _snapshot = data.Logs;
-        _entries = new(data.Logs.Take(Capacity));
+        _entries = new(data.Logs.Take(ProgramEventHistory.Capacity));
         Sources = BuildSources();
         Entries = new ListCollectionView(_entries) { Filter = item => Matches((LogEntry)item) };
         Selected = (LogEntry?)Entries.CurrentItem;
@@ -40,7 +39,9 @@ internal sealed partial class LogsViewModel : ObservableObject
     public IReadOnlyList<string> Sources { get; private set; }
     public IReadOnlyList<string> Levels { get; } = [AllLevels, "信息", "警告", ErrorLevel];
     public ICollectionView Entries { get; }
-    public string LimitLabel => $"最多保留 {Capacity:N0} 条";
+    public string LimitLabel => _data.OlderLogsExcluded is > 0 and var excluded
+        ? $"最多保留 {ProgramEventHistory.Capacity:N0} 条 · 已略过 {excluded:N0} 条较早记录"
+        : $"最多保留 {ProgramEventHistory.Capacity:N0} 条";
     public int ErrorCount => _entries.Count(entry => entry.Level == LogLevel.Error);
     public bool HasResults => !Entries.IsEmpty;
     public string CountLabel => $"{((ListCollectionView)Entries).Count} 条记录";
@@ -88,6 +89,8 @@ internal sealed partial class LogsViewModel : ObservableObject
     {
         if (ReferenceEquals(_snapshot, _data.Logs)) return;
         _snapshot = _data.Logs;
+        _entries.Clear();
+        _entries.AddRange(_snapshot.Take(ProgramEventHistory.Capacity));
         var previousSource = Source;
         var id = _sourceIds.GetValueOrDefault(previousSource);
         var sources = BuildSources();
@@ -98,18 +101,8 @@ internal sealed partial class LogsViewModel : ObservableObject
             Source = id != Guid.Empty ? _sourceIds.FirstOrDefault(pair => pair.Value == id).Key ?? AllSources :
                 sources.Contains(previousSource) ? previousSource : AllSources;
         }
-        var alreadyPresent = _entries.Count > 0 ? Array.IndexOf(_snapshot.ToArray(), _entries[0]) : -1;
-        if (alreadyPresent < 0)
-        {
-            _entries.Clear();
-            foreach (var entry in _snapshot.Take(Capacity)) _entries.Add(entry);
-        }
-        else
-        {
-            for (var index = alreadyPresent - 1; index >= 0; index--) _entries.Insert(0, _snapshot[index]);
-            while (_entries.Count > Capacity) _entries.RemoveAt(_entries.Count - 1);
-        }
         Refresh();
+        OnPropertyChanged(nameof(LimitLabel));
         OnPropertyChanged(nameof(ErrorCount));
         OnPropertyChanged(nameof(EmptyLabel));
     }

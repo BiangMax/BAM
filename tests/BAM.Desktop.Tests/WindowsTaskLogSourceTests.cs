@@ -1,4 +1,6 @@
 using System.IO;
+using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using BAM.Adapters;
 using BAM.Core;
@@ -12,6 +14,48 @@ public sealed class WindowsTaskLogSourceTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("BamSyntheticTaskLog-");
     private string Log => Path.Combine(_directory.FullName, "maafw.log");
+
+    public static bool RunShortLogStress => Environment.GetEnvironmentVariable("BAM_LOG_STRESS") == "1";
+
+    [Fact(SkipUnless = nameof(RunShortLogStress), Skip = "Set BAM_LOG_STRESS=1 for the 60-second log reader fixture.")]
+    public async Task ShortLogStressKeepsRecordsInOrderAndReadsOverflowOnTheNextPass()
+    {
+        const int perSecond = 1000;
+        const int seconds = 60;
+        var payload = "合成记录" + new string('x', 69);
+        await File.WriteAllTextAsync(Log, "", Token);
+        var tail = new WindowsTaskLogSource().Follow(Log);
+        await tail.ReadAsync(Token);
+        var clock = Stopwatch.StartNew();
+
+        for (var second = 0; second < seconds; second++)
+        {
+            var delay = TimeSpan.FromSeconds(second + 1) - clock.Elapsed;
+            if (delay > TimeSpan.Zero) await Task.Delay(delay, Token);
+            var records = Records(second * perSecond, perSecond);
+            await File.AppendAllLinesAsync(Log, records, Token);
+            var batch = await tail.ReadAsync(Token);
+            Assert.True(batch.CaughtUp);
+            Assert.False(batch.Discontinuity);
+            Assert.Equal(records, batch.Lines);
+        }
+
+        var backlog = Records(seconds * perSecond, perSecond * 2);
+        await File.AppendAllLinesAsync(Log, backlog, Token);
+        using (File.Open(Log, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            await Assert.ThrowsAsync<IOException>(() => tail.ReadAsync(Token).AsTask());
+        var first = await tail.ReadAsync(Token);
+        Assert.False(first.CaughtUp);
+        Assert.False(first.Discontinuity);
+        Assert.InRange(first.Lines.Count, 1, backlog.Length - 1);
+        var secondBatch = await tail.ReadAsync(Token);
+        Assert.True(secondBatch.CaughtUp);
+        Assert.False(secondBatch.Discontinuity);
+        Assert.Equal(backlog, first.Lines.Concat(secondBatch.Lines));
+
+        string[] Records(int start, int count) => Enumerable.Range(start, count)
+            .Select(index => $"{index.ToString("D6", CultureInfo.InvariantCulture)} {payload}").ToArray();
+    }
 
     [Fact]
     public async Task SyntheticFrameworkFileFeedsOnlyCurrentCorrelatedTask()

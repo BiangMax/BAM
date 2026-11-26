@@ -47,6 +47,7 @@ public sealed class DesktopLayoutTests
                     VerifyLoopbackAddresses();
                     VerifyProgramEditorInheritance();
                     VerifyPairedCountdownButton();
+                    VerifyLogsAtCapacity();
                     app.Resources.MergedDictionaries.Remove(palette);
                 }
                 app.Shutdown();
@@ -147,6 +148,26 @@ public sealed class DesktopLayoutTests
         }
     }
 
+    private static void VerifyLogsAtCapacity()
+    {
+        var data = new LayoutData
+        {
+            OlderLogsExcluded = 100,
+            Logs = Enumerable.Range(0, 2100).Reverse().Select(index =>
+                new LogEntry(DateTimeOffset.UnixEpoch.AddSeconds(index), "BAM", LogLevel.Information, $"合成记录 {index}", "")).ToArray()
+        };
+        var model = new LogsViewModel(data);
+        var view = new LogsView { DataContext = model };
+        Layout(view, 900, 650);
+        Assert.Equal("2000 条记录", model.CountLabel);
+        Assert.Contains(FindAll<TextBlock>(view), label => label.Text == model.CountLabel && label.ActualHeight > 0);
+        Assert.Contains(FindAll<TextBlock>(view), label => label.Text == model.LimitLabel && label.Text.Contains("已略过 100 条较早记录"));
+        model.Query = "合成记录 2099";
+        Assert.Equal("合成记录 2099", Assert.IsType<LogEntry>(Assert.Single(model.Entries.Cast<object>())).Message);
+        model.Query = "合成记录 0";
+        Assert.False(model.HasResults);
+    }
+
     private static void VerifyDashboardFirstScreen()
     {
         var names = new[] { "MaaEnd", "MAA", "BBchannel" };
@@ -198,6 +219,7 @@ public sealed class DesktopLayoutTests
         public bool HasResourceSource { get; init; }
         public IReadOnlyList<ScriptItem> Scripts { get; init; } = [];
         public IReadOnlyList<LogEntry> Logs { get; init; } = [];
+        public long OlderLogsExcluded { get; init; }
         public string? GetLogSourceNotice(string source) => null;
         public ResourceFrame? ReadResources(DateTimeOffset time) => time == DateTimeOffset.UnixEpoch.AddSeconds(1)
             ? new(time, [], 0, null) : time == DateTimeOffset.UnixEpoch.AddSeconds(2) ? new(time, [], null, 64) : null;

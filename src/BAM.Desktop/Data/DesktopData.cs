@@ -9,6 +9,7 @@ internal interface IDesktopData
     bool IsDemo { get; }
     IReadOnlyList<ScriptItem> Scripts { get; }
     IReadOnlyList<LogEntry> Logs { get; }
+    long OlderLogsExcluded => 0;
     bool HasResourceSource { get; }
     string? GetLogSourceNotice(string source);
     ResourceFrame? ReadResources(DateTimeOffset time);

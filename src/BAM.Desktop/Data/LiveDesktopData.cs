@@ -16,16 +16,36 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     private readonly HashSet<Task> _changes = [];
     private Task _monitor = Task.CompletedTask;
     private MonitorOptions _options = new(true, TimeSpan.FromSeconds(1));
-    private IReadOnlyList<ProgramEvent>? _previousEvents;
+    private ProgramEventHistory? _previousEvents;
     private long _noticeRevision;
     private LaunchNotice? _launchNotice;
     private string? _discoveryIssue;
     private string? _installationReadIssue;
+#if BAM_VERIFICATION
+    private ProgramEventBuffer? _verificationLogBuffer;
+    private int _verificationLogCount;
+
+    internal void EnableLogStress() => _verificationLogBuffer = new();
+
+    private ProgramFrame ApplyLogStress(ProgramFrame frame)
+    {
+        if (_verificationLogBuffer is not { } buffer) return frame;
+        var due = (int)Math.Min(frame.Elapsed.TotalSeconds, 60) * 1000;
+        while (_verificationLogCount < due)
+        {
+            var number = ++_verificationLogCount;
+            var label = number % 2 == 0 ? "合成日志偶数" : "合成日志奇数";
+            buffer.Add(new(frame.ObservedAt, null, "BAM", EventSeverity.Information, $"{label} {number:00000}", "隔离验证数据"));
+        }
+        return _verificationLogCount > 0 ? frame with { EventHistory = buffer.Snapshot() } : frame;
+    }
+#endif
 
     public event EventHandler? Updated;
     public bool IsDemo => false;
     public IReadOnlyList<ScriptItem> Scripts { get; private set; } = [];
     public IReadOnlyList<LogEntry> Logs { get; private set; } = [];
+    public long OlderLogsExcluded => _previousEvents?.OlderEntriesExcluded ?? 0;
     public bool HasResourceSource => true;
     public ProgramFrame? Frame { get; private set; }
     public string? DetectionIssue => _installationReadIssue ?? _discoveryIssue;
@@ -63,10 +83,12 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
                 var frame = await monitor.SampleAsync(options.Collect, token).ConfigureAwait(false);
                 if (maaEndTasks is not null)
                     frame = await maaEndTasks.ObserveAsync(frame, token).ConfigureAwait(false);
+#if BAM_VERIFICATION
+                frame = ApplyLogStress(frame);
+#endif
                 var items = frame.Programs.Select(ToScript).ToArray();
-                var events = monitor.Events;
                 var readIssue = monitor.InstallationReadIssue;
-                await dispatch(() => Publish(frame, items, events, readIssue)).ConfigureAwait(false);
+                await dispatch(() => Publish(frame, items, readIssue)).ConfigureAwait(false);
                 await _wake.WaitAsync(options.Delay, token).ConfigureAwait(false);
             }
         }
@@ -82,7 +104,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         }
     });
 
-    private void Publish(ProgramFrame frame, IReadOnlyList<ScriptItem> scripts, IReadOnlyList<ProgramEvent> events, string? readIssue)
+    private void Publish(ProgramFrame frame, IReadOnlyList<ScriptItem> scripts, string? readIssue)
     {
         if (_stop.IsCancellationRequested) return;
         Frame = frame;
@@ -94,10 +116,10 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             Notice = outcome;
         }
         if (!Scripts.SequenceEqual(scripts)) Scripts = scripts;
-        if (!ReferenceEquals(_previousEvents, events))
+        if (frame.EventHistory is { } events && !ReferenceEquals(_previousEvents, events))
         {
             _previousEvents = events;
-            Logs = events.Select(entry => new LogEntry(entry.Time, entry.Source, (LogLevel)entry.Severity,
+            Logs = events.Entries.Select(entry => new LogEntry(entry.Time, entry.Source, (LogLevel)entry.Severity,
                 entry.Message, entry.Detail) { InstallationId = entry.InstallationId }).ToArray();
         }
         Updated?.Invoke(this, EventArgs.Empty);
