@@ -44,7 +44,12 @@ public sealed class ProgramMonitorTests
         Assert.Null(rollback.Programs[0].Uptime);
         rig.Clock.Tick(elapsedSeconds: 70);
         rig.Platform.Workers = [rig.Worker(17, 3)];
-        Assert.Null((await rig.Monitor.SampleAsync(true, Token)).Cpu);
+        var afterGap = await rig.Monitor.SampleAsync(true, Token);
+        Assert.Null(afterGap.Cpu);
+        Assert.Equal(2, afterGap.WorkingSetMiB);
+        rig.Clock.Tick();
+        rig.Platform.Workers = [rig.Worker(17, 3.25)];
+        Assert.Equal(25d / Environment.ProcessorCount, (await rig.Monitor.SampleAsync(true, Token)).Cpu);
 
         rig.Clock.Tick();
         rig.Platform.Workers = [rig.Worker(17, 0.1, creation: 1)];
