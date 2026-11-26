@@ -47,9 +47,93 @@ public sealed class InstallationCatalog(IProgramFiles files)
     {
         var entry = source.Entry with { WorkingDirectory = directory.Trim(), Arguments = arguments };
         var edited = Describe(source.Id, name.Trim(), entry, source.Kind,
-            string.IsNullOrWhiteSpace(explicitWorker) ? null : explicitWorker.Trim());
+            string.IsNullOrWhiteSpace(explicitWorker) ? null : explicitWorker.Trim()) with
+        {
+            Emulator = source.Emulator,
+            EmulatorMonitor = source.EmulatorMonitor
+        };
         Validate(edited, requireFiles: true);
         return edited;
+    }
+
+    public LaunchEntry ImportEmulator(string path)
+    {
+        var entry = files.ReadEntry(path);
+        ValidateEmulatorEntry(entry);
+        return entry;
+    }
+
+    public string ImportEmulatorImage(string path)
+    {
+        ValidateMonitoringImage(path);
+        if (!files.FileExists(path)) throw new ArgumentException("模拟器程序不存在或无法读取。");
+        var resolved = files.ResolveImagePath(path);
+        ValidateMonitoringImage(resolved);
+        return resolved;
+    }
+
+    public static void ValidateEmulatorMonitoring(EmulatorMonitoring setup)
+    {
+        ValidateMonitoringImage(setup.ImagePath);
+        if (setup.InstanceNumber is < 0) throw new ArgumentException("实例编号须为非负整数。");
+        if (setup.WorkerImagePath is not { } worker) return;
+        ValidateMonitoringImage(worker);
+        if (Paths.Equals(setup.ImagePath, worker)) throw new ArgumentException("模拟器和补充进程不能选择同一文件。");
+    }
+
+    private static void ValidateMonitoringImage(string path)
+    {
+        ValidatePath(path, ".exe");
+        var name = Path.GetFileName(path);
+        if (OtherPrograms.Contains(name, Paths) || Paths.Equals(name, "MaaEnd.exe") || Paths.Equals(name, "MAA.exe") ||
+            Paths.Equals(name, "BBchannel.exe") || name.EndsWith("Service.exe", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("SVC.exe", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("请选择模拟器实例的程序，避免选择脚本或共享服务。");
+    }
+
+    public string? EmulatorIssue(ProgramInstallation program, EmulatorStartup setup)
+    {
+        var entry = setup.Entry;
+        try
+        {
+            ValidateEmulatorEntry(entry);
+            if (!program.SupportsEmulatorStartup || setup.WaitSeconds is < 0 or > EmulatorStartup.MaximumWaitSeconds ||
+                Paths.Equals(entry.TargetPath, program.Entry.TargetPath) ||
+                Paths.Equals(entry.ResolvedTarget ?? entry.TargetPath, program.Entry.ResolvedTarget ?? program.Entry.TargetPath))
+                return "模拟器启动配置无效，请重新设置。";
+            if (!files.FileExists(entry.OriginalPath) || !files.FileExists(entry.TargetPath) ||
+                !files.DirectoryExists(entry.WorkingDirectory) ||
+                !Paths.Equals(entry.ResolvedTarget ?? entry.TargetPath, files.ResolveImagePath(entry.TargetPath)))
+                return "模拟器入口、目标或工作目录已变更，请重新选择。";
+            if (Paths.Equals(Path.GetExtension(entry.OriginalPath), ".lnk"))
+            {
+                var current = files.ReadEntry(entry.OriginalPath);
+                if (!Paths.Equals(current.TargetPath, entry.TargetPath) || !Paths.Equals(current.WorkingDirectory, entry.WorkingDirectory) ||
+                    current.Arguments != entry.Arguments || current.RunAs != entry.RunAs)
+                    return "模拟器快捷方式内容已变更，请重新选择。";
+            }
+            return null;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or UnauthorizedAccessException)
+        {
+            return "无法读取模拟器启动配置，请重新选择。";
+        }
+    }
+
+    private static void ValidateEmulatorEntry(LaunchEntry? entry)
+    {
+        if (entry is null) throw new ArgumentException("请选择模拟器的启动入口。");
+        ValidatePath(entry.OriginalPath, ".lnk", ".exe");
+        ValidatePath(entry.TargetPath, ".exe");
+        ValidatePath(entry.WorkingDirectory);
+        if (entry.ResolvedTarget is { } resolved) ValidatePath(resolved, ".exe");
+        var target = Path.GetFileName(entry.ResolvedTarget ?? entry.TargetPath);
+        if (OtherPrograms.Contains(target, Paths) || Paths.Equals(target, "MaaEnd.exe") ||
+            Paths.Equals(target, "MAA.exe") || Paths.Equals(target, "BBchannel.exe"))
+            throw new ArgumentException("请选择模拟器的实例快捷方式或启动程序。");
+        if ((!Paths.Equals(Path.GetExtension(entry.OriginalPath), ".lnk") && !Paths.Equals(entry.OriginalPath, entry.TargetPath)) ||
+            entry.Arguments is null || entry.Arguments.Length > 4096 || entry.Arguments.Any(char.IsControl))
+            throw new ArgumentException("模拟器启动入口或参数无效。");
     }
 
     public void Validate(ProgramInstallation program, bool requireFiles)

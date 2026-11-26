@@ -17,7 +17,8 @@
                             <ui:SymbolIcon x:Name="StatusIcon" Symbol="Circle16" FontSize="12"
                                            Foreground="{TemplateBinding Foreground}"/>
                             <TextBlock Text="{Binding Text, RelativeSource={RelativeSource TemplatedParent}}" Margin="{StaticResource Bam.InlineGap}"
-                                       Style="{StaticResource Bam.Caption}" Foreground="{TemplateBinding Foreground}"/>
+                                       Style="{StaticResource Bam.Caption}" Foreground="{TemplateBinding Foreground}"
+                                       VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -86,12 +87,13 @@
                 <ControlTemplate TargetType="local:MetricTile">
                     <Border Style="{StaticResource Bam.Panel}" Padding="{StaticResource Bam.MetricPadding}">
                         <StackPanel>
-                            <DockPanel>
+                            <DockPanel Margin="{StaticResource Bam.After.Small}">
                                 <ui:SymbolIcon Symbol="{TemplateBinding Symbol}" FontSize="17" Margin="{StaticResource Bam.Gap.SmallRight}"
                                                Foreground="{DynamicResource Bam.PrimaryLight}"/>
-                                <TextBlock Text="{Binding Label, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.Caption}"/>
+                                <TextBlock Text="{Binding Label, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.Caption}" VerticalAlignment="Center"/>
                             </DockPanel>
-                            <TextBlock x:Name="MetricNumber" Text="{Binding Value, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.MetricValue}"/>
+                            <TextBlock x:Name="MetricNumber" Text="{Binding Value, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.MetricValue}"
+                                       Margin="{StaticResource Bam.After.Small}"/>
                             <TextBlock Text="{Binding Detail, RelativeSource={RelativeSource TemplatedParent}}" Style="{StaticResource Bam.Muted}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
@@ -143,8 +145,8 @@
                   <Image Source="{Binding ActualIcon}" Width="24" Height="24" RenderOptions.BitmapScalingMode="HighQuality"/>
                 </Grid>
             </Border>
-            <StackPanel>
-                <TextBlock Style="{StaticResource Bam.CardTitle}" Text="{Binding Name}" TextWrapping="Wrap"/>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Style="{StaticResource Bam.CardTitle}" Text="{Binding Name}" TextWrapping="Wrap" Margin="{StaticResource Bam.After.Small}"/>
                 <TextBlock Style="{StaticResource Bam.Caption}" Text="{Binding Game}" TextWrapping="Wrap"/>
             </StackPanel>
         </DockPanel>

@@ -100,10 +100,12 @@ internal sealed partial class ShellViewModel : ObservableObject
     [RelayCommand] private void AddScript() => EditScript(null);
 
     [RelayCommand]
-    private void EditScript(ScriptItem? script)
+    private void EditScript(ScriptItem? script) => ShowEditor(script, focusEmulator: false);
+
+    private void ShowEditor(ScriptItem? script, bool focusEmulator)
     {
         if (_live is null) return;
-        var editor = new ProgramEditor(_live, script?.Installation) { Owner = System.Windows.Application.Current.MainWindow };
+        var editor = new ProgramEditor(_live, script?.Installation, focusEmulator) { Owner = System.Windows.Application.Current.MainWindow };
         editor.ShowDialog();
     }
 
@@ -122,6 +124,26 @@ internal sealed partial class ShellViewModel : ObservableObject
         if (script.NeedsRelocation) EditScript(script);
         else if (script.CanActivate) await _live.ExecuteAsync(script, ProgramAction.Activate);
         else if (script.CanStart) await Launch(script, ProgramAction.Start);
+    }
+
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task StartWithEmulator(ScriptItem? script)
+    {
+        if (_live is null || script is not { CanUseEmulatorAction: true, Installation: { } program }) return;
+        if (program.Emulator is not { Entry: { } start } emulator)
+        {
+            ShowEditor(script, focusEmulator: true);
+            return;
+        }
+
+        const string label = "启动模拟器和软件";
+        var entry = program.Entry;
+        var details = $"模拟器　{start.TargetPath}\n工作目录　{start.WorkingDirectory}\n参数　{start.Arguments}\n\n" +
+            $"软件　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{entry.Arguments}";
+        if (await Confirm(label, $"先请求启动选定的模拟器，等待 {emulator.WaitSeconds} 秒，然后启动「{script.Name}」。" +
+            "等待时间由你设置。软件可能按原配置自动运行任务。\n" +
+            $"{PermissionLabel}。Windows 可能请求目标的权限。\n\n{details}", label))
+            await _live.ExecuteAsync(script, ProgramAction.StartWithEmulator);
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]
@@ -162,14 +184,18 @@ internal sealed partial class ShellViewModel : ObservableObject
 
     private static async Task<bool> Confirm(string title, string content, string affirmative)
     {
+        var body = new System.Windows.Controls.TextBlock { Text = content, FontSize = 14 };
+        body.SetResourceReference(System.Windows.FrameworkElement.StyleProperty, "Bam.BodyCopy");
         var dialog = new Wpf.Ui.Controls.MessageBox
         {
             Owner = System.Windows.Application.Current.MainWindow,
             Title = title,
-            Content = content,
+            Content = body,
+            UseLayoutRounding = true,
             PrimaryButtonText = affirmative,
             CloseButtonText = "取消"
         };
+        dialog.SetResourceReference(System.Windows.Controls.Control.FontFamilyProperty, "Bam.Font");
         return await dialog.ShowDialogAsync() == Wpf.Ui.Controls.MessageBoxResult.Primary;
     }
 }

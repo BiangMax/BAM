@@ -267,6 +267,159 @@ public sealed class ProgramMonitorTests
         Assert.Equal(expected, entry.HasSafeBatchArguments);
     }
 
+    [Theory]
+    [InlineData(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1")]
+    [InlineData(ProgramKind.BBchannel, "启动.cmd", "--instance 2")]
+    public async Task EmulatorShortcutRunsBeforeTheOriginalScriptEntry(ProgramKind kind, string filename, string arguments)
+    {
+        using var rig = new Rig();
+        var program = rig.SetEmulatorStartup(kind, filename, arguments);
+        await rig.Monitor.InitializeAsync(Token);
+        var operation = rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token);
+        await rig.Clock.DelayScheduled.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+
+        Assert.Equal(program.Emulator!.Entry, Assert.Single(rig.Platform.Submitted));
+        Assert.Equal(arguments, rig.Platform.Submitted[0].Arguments);
+        var waiting = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        Assert.Equal(ProcessState.Starting, waiting.Process);
+        Assert.Empty(waiting.Actions);
+        Assert.Equal(CommandStatus.Denied,
+            (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token)).Status);
+        rig.Clock.Tick(elapsedSeconds: 29);
+        Assert.Single(rig.Platform.Submitted);
+        rig.Clock.Tick();
+        Assert.Equal(CommandStatus.Accepted, (await operation).Status);
+        Assert.Equal(new[] { program.Emulator.Entry, program.Entry }, rig.Platform.Submitted);
+        Assert.Empty(rig.Platform.Controls);
+    }
+
+    [Theory]
+    [InlineData("changed shortcut")]
+    [InlineData("launch denied")]
+    [InlineData("script already running")]
+    [InlineData("cancelled")]
+    public async Task EmulatorStartupAbortsBeforeLaunchingTheScriptWhenBlocked(string blocker)
+    {
+        using var rig = new Rig();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var program = rig.SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 3");
+        var entry = program.Emulator!.Entry;
+        if (blocker == "changed shortcut") rig.Files.Links[entry.OriginalPath] = entry with { Arguments = "--instance 4" };
+        if (blocker == "launch denied") rig.Platform.LaunchResult = new(CommandStatus.Denied);
+        await rig.Monitor.InitializeAsync(Token);
+        var operation = rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, stop.Token);
+        if (blocker is "script already running" or "cancelled")
+        {
+            await rig.Clock.DelayScheduled.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            if (blocker == "script already running")
+            {
+                rig.Platform.Workers = [rig.Worker(17, 1) with
+                {
+                    Identity = new(program.WorkerPaths[0], 17, DateTimeOffset.UnixEpoch)
+                }];
+                rig.Clock.Tick(elapsedSeconds: 30);
+            }
+            else stop.Cancel();
+        }
+
+        if (blocker == "cancelled") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+        else Assert.Equal(CommandStatus.Denied, (await operation).Status);
+        if (blocker == "changed shortcut") Assert.Empty(rig.Platform.Submitted);
+        else Assert.Equal(entry, Assert.Single(rig.Platform.Submitted));
+        Assert.Empty(rig.Platform.Controls);
+    }
+
+    [Fact]
+    public async Task OrdinaryStartDoesNotUseTheEmulatorConfiguration()
+    {
+        using var rig = new Rig();
+        var program = rig.SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1");
+        await rig.Monitor.InitializeAsync(Token);
+        Assert.Equal(CommandStatus.Accepted, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token)).Status);
+        Assert.Equal(program.Entry, Assert.Single(rig.Platform.Submitted));
+    }
+
+    [Fact]
+    public async Task EmulatorProcessesByDistinctImageContributeOnlyToTheirOwnCard()
+    {
+        using var rig = new Rig();
+        var front = Path.Combine(Root, "front.exe");
+        var vm = Path.Combine(Root, "vm.exe");
+        var other = Path.Combine(Root, "other", "front.exe");
+        var secondEntry = Path.Combine(Root, "another.exe");
+        rig.Store.Programs = [Program with { EmulatorMonitor = new(front, WorkerImagePath: vm) },
+            new(Guid.NewGuid(), "Another", ProgramKind.Generic, new(secondEntry, secondEntry, Root, ""), Root, [secondEntry])
+            { EmulatorMonitor = new(other) }];
+        rig.Platform.EmulatorWorkers = [MetricWorker(front, 40, 128), MetricWorker(vm, 41, 512), MetricWorker(other, 42, 256)];
+        await rig.Monitor.InitializeAsync(Token);
+
+        var first = await rig.Monitor.SampleAsync(true, Token);
+        Assert.Equal(640, first.Programs[0].EmulatorUsage!.WorkingSetMiB);
+        Assert.Equal(256, first.Programs[1].EmulatorUsage!.WorkingSetMiB);
+        Assert.Null(first.Programs[0].EmulatorUsage!.Cpu);
+        Assert.Null(first.WorkingSetMiB);
+        rig.Clock.Tick();
+        rig.Platform.EmulatorWorkers = rig.Platform.EmulatorWorkers.Select(worker => worker with { CpuTime = TimeSpan.FromSeconds(.1) }).ToArray();
+        var second = await rig.Monitor.SampleAsync(true, Token);
+        Assert.Equal(20d / Environment.ProcessorCount, second.Programs[0].EmulatorUsage!.Cpu);
+        Assert.Equal(10d / Environment.ProcessorCount, second.Programs[1].EmulatorUsage!.Cpu);
+
+        rig.Platform.EmulatorWorkers = rig.Platform.EmulatorWorkers.Where(worker => worker.Identity.ImagePath != vm).ToArray();
+        Assert.Null((await rig.Monitor.SampleAsync(true, Token)).Programs[0].EmulatorUsage!.WorkingSetMiB);
+        var scanCount = rig.Platform.EmulatorScans;
+        Assert.Null((await rig.Monitor.SampleAsync(false, Token)).Programs[1].EmulatorUsage!.WorkingSetMiB);
+        Assert.Equal(scanCount, rig.Platform.EmulatorScans);
+        Assert.Empty(rig.Platform.Controls);
+        Assert.Equal(0, rig.Platform.Launches);
+    }
+
+    [Theory]
+    [InlineData(1, "--index=1", 376)]
+    [InlineData(0, "--index=1", null)]
+    [InlineData(1, "--index=0", null)]
+    [InlineData(1, "--index=unknown", null)]
+    [InlineData(null, "--index=1", null)]
+    public async Task SharedEmulatorExeRequiresUniqueConsistentInstanceNumbers(int? secondIndex, string secondFlag, int? expectedSecond)
+    {
+        using var rig = new Rig();
+        var image = Path.Combine(Root, "emulator.exe");
+        var secondEntry = Path.Combine(Root, "another.exe");
+        rig.Store.Programs = [Program with { EmulatorMonitor = new(image, 0) },
+            new(Guid.NewGuid(), "Another", ProgramKind.Generic, new(secondEntry, secondEntry, Root, ""), Root, [secondEntry])
+            { EmulatorMonitor = new(image, secondIndex) }];
+        var firstWorker = MetricWorker(image, 40, 192);
+        var secondWorker = MetricWorker(image, 41, 376);
+        rig.Platform.EmulatorWorkers = [firstWorker, secondWorker];
+        rig.Platform.EmulatorArguments[firstWorker.Identity] = [image, "-v", "0"];
+        rig.Platform.EmulatorArguments[secondWorker.Identity] = [image, secondFlag];
+        await rig.Monitor.InitializeAsync(Token);
+
+        var initial = await rig.Monitor.SampleAsync(true, Token);
+        Assert.Null(initial.Programs[0].EmulatorUsage!.WorkingSetMiB);
+        Assert.Null(initial.Programs[1].EmulatorUsage!.WorkingSetMiB);
+        await rig.Platform.ReadArguments.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+        var firstExpected = secondIndex != 0 && secondFlag == "--index=1" ? 192 : (int?)null;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(3));
+        ProgramFrame frame;
+        do
+        {
+            frame = await rig.Monitor.SampleAsync(true, deadline.Token);
+            if (frame.Programs[0].EmulatorUsage!.Hint != "正在核对模拟器实例编号。" &&
+                frame.Programs[0].EmulatorUsage!.WorkingSetMiB == firstExpected &&
+                frame.Programs[1].EmulatorUsage!.WorkingSetMiB == expectedSecond) break;
+            await Task.Delay(10, deadline.Token);
+        } while (true);
+        if (expectedSecond is not null)
+        {
+            rig.Platform.EmulatorWorkers = [firstWorker, secondWorker with { Identity = new(image, 41, DateTimeOffset.UnixEpoch.AddSeconds(1)) }];
+            Assert.Null((await rig.Monitor.SampleAsync(true, Token)).Programs[1].EmulatorUsage!.WorkingSetMiB);
+        }
+    }
+
+    private static WorkerSnapshot MetricWorker(string path, int pid, long memory) =>
+        new(new(path, pid, DateTimeOffset.UnixEpoch), TimeSpan.Zero, memory * 1048576, null, null, false);
+
     private sealed class Rig : IDisposable
     {
         public ManualClock Clock { get; } = new();
@@ -276,6 +429,21 @@ public sealed class ProgramMonitorTests
         public ProgramMonitor Monitor { get; }
 
         public Rig() => Monitor = new(new(Files), Platform, Store, Store, Clock);
+
+        public ProgramInstallation SetEmulatorStartup(ProgramKind kind, string filename, string arguments)
+        {
+            var target = Path.Combine(Root, "emulator.exe");
+            var shortcut = Path.Combine(Root, "instance.lnk");
+            var emulator = Files.Links[shortcut] = new(shortcut, target, Root, arguments);
+            var entry = Path.Combine(Root, filename);
+            var worker = kind == ProgramKind.BBchannel ? Path.Combine(Root, @"dist\BBchannel64\BBchannel.exe") : entry;
+            var program = new ProgramInstallation(Id, kind.ToString(), kind, new(entry, entry, Root, ""), Root, [worker])
+            {
+                Emulator = new(emulator, 30)
+            };
+            Store.Programs = [program];
+            return program;
+        }
 
         public WorkerSnapshot Worker(int pid, double? cpu, int creation = 0) => new(
             new(WorkerPath, pid, DateTimeOffset.UnixEpoch.AddSeconds(creation)),
@@ -290,6 +458,7 @@ public sealed class ProgramMonitorTests
         private DateTimeOffset _wall = DateTimeOffset.UnixEpoch;
         private Timer? _delay;
         private long _due;
+        public TaskCompletionSource DelayScheduled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => _ticks;
         public override DateTimeOffset GetUtcNow() => _wall;
@@ -299,7 +468,9 @@ public sealed class ProgramMonitorTests
             Assert.Equal(Timeout.InfiniteTimeSpan, period);
             Assert.Null(_delay);
             _due = _ticks + dueTime.Ticks;
-            return _delay = new Timer(callback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            var timer = _delay = new Timer(callback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            DelayScheduled.TrySetResult();
+            return timer;
         }
 
         public void Tick(int wallSeconds = 1, int elapsedSeconds = 1)
@@ -320,9 +491,16 @@ public sealed class ProgramMonitorTests
         public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<ProcessIdentity, uint?> Exits { get; } = [];
         public List<ProgramAction> Controls { get; } = [];
+        public List<LaunchEntry> Submitted { get; } = [];
+        public IReadOnlyList<WorkerSnapshot> EmulatorWorkers = [];
+        public Dictionary<ProcessIdentity, string[]> EmulatorArguments { get; } = [];
+        public TaskCompletionSource ReadArguments { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _argumentsRead;
+        public int EmulatorScans;
         public int Launches;
         public Action? Spawn;
         public CommandResult ControlResult = new(CommandStatus.Accepted);
+        public CommandResult LaunchResult = new(CommandStatus.Accepted);
 
         public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation)
         {
@@ -334,8 +512,22 @@ public sealed class ProgramMonitorTests
         public CommandResult Launch(LaunchEntry entry)
         {
             Launches++;
+            Submitted.Add(entry);
             Spawn?.Invoke();
-            return new(CommandStatus.Accepted);
+            return LaunchResult;
+        }
+
+        public ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation)
+        {
+            EmulatorScans++;
+            return new(true, Unreadable, EmulatorWorkers.Where(worker => paths.Contains(worker.Identity.ImagePath)).ToArray(),
+                new Dictionary<ProcessIdentity, uint?>());
+        }
+
+        public string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation)
+        {
+            if (Interlocked.Increment(ref _argumentsRead) == 2) ReadArguments.TrySetResult();
+            return EmulatorArguments.GetValueOrDefault(identity);
         }
 
         public CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window)

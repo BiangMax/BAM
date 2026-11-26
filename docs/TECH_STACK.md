@@ -14,7 +14,7 @@
 | Phase 2–3 | WPF Drawing、WinForms NotifyIcon、System.Drawing.Icon | Windows 桌面框架随附。轻量曲线和托盘无须另加图表或托盘包。图标读取后转换、冻结并缓存，释放原生句柄。 |
 | Phase 3 | System.Diagnostics.Process、Win32、Windows 快捷方式 COM、System.Text.Json | 平台随附。使用 Windows 系统目录中的命令解释器处理已确认的批处理入口。Win32 包装负责实例复核、窗口、图标、工作集和句柄释放。 |
 | Phase 3 | BCL 文件 I/O、JSON Lines | BAM 单写者输出结构化事件，4 个文件各约 1 MiB，保留期 14 天。UI 最多保留 2,000 条。沿用已锁定的依赖版本。 |
-| Phase 4（按需） | ASP.NET Core 10 Kestrel | 用 FrameworkReference 引入，启用 MAA 远控时才启动服务。框架依赖发布需同时部署相应共享运行时，当前宿主未列出该运行时。HTTP 形状已用标准库验证，Kestrel 尚未实机验证。 |
+| Phase 4 | ASP.NET Core 10 Kestrel | 通过 FrameworkReference 使用 SDK 配套框架，启用 MAA 回环后才启动服务。框架依赖版同时需要对应 x64 ASP.NET Core 共享运行时，现有 Windows 开发机已用本地 HTTP 夹具验证。真实 MAA 连接待验。 |
 | 有证据后 | FlaUI.UIA3、SQLite | 暂缓。FlaUI（MIT）仅在有可复现且稳定的 AutomationId 时评估；有历史查询需求后评估 SQLite 引擎及 .NET 提供程序、原生二进制的单独许可证和部署成本。 |
 
 Phase 2 已引入 WPF-UI 4.3.0、其传递依赖 WPF-UI.Abstractions 4.3.0 和 CommunityToolkit.Mvvm 8.4.2。组合方式和本机验收记录见 [Phase 2 报告](PHASE2_REPORT.md)。后续依赖按表中阶段引入。Directory.Packages.props 集中固定版本，CI 使用锁定模式还原。正式发布时清点传递依赖、图标字形和字体的许可及通知要求。第三方应用保持独立安装。BAM 的许可证由项目所有者决定。

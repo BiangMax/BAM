@@ -19,17 +19,17 @@
                     <ColumnDefinition Width="5*"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="软件进程" Style="{StaticResource Bam.Muted}"/>
+                    <TextBlock Text="软件进程" Style="{StaticResource Bam.FieldLabel}"/>
                     <local:ToneBadge Text="{Binding Script.ProcessLabel}" Tone="{Binding Script.ProcessTone}" ToolTip="{Binding Script.OperationHint}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="{Binding Script.TaskScopeLabel}" Style="{StaticResource Bam.Muted}"/>
+                    <TextBlock Text="{Binding Script.TaskScopeLabel}" Style="{StaticResource Bam.FieldLabel}"/>
                     <local:ToneBadge Text="{Binding Script.TaskLabel}" Tone="{Binding Script.TaskTone}" ToolTip="{Binding Script.TaskHint}"/>
                 </StackPanel>
             </Grid>
 
             <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Bam.PanelEdge}"
-                    Margin="{StaticResource Bam.Before.Medium}" Padding="0,4,0,0">
+                    Margin="{StaticResource Bam.Before.Medium}" Padding="0,8,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -51,16 +51,16 @@
                             </Style>
                         </UniformGrid.Style>
                         <StackPanel>
-                            <TextBlock Text="CPU" Style="{StaticResource Bam.Muted}"/>
-                            <TextBlock Text="{Binding Cpu}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding CpuHint}"/>
+                            <TextBlock Text="CPU" Style="{StaticResource Bam.FieldLabel}"/>
+                            <TextBlock Text="{Binding Cpu}" Style="{StaticResource Bam.Value}" ToolTip="{Binding CpuHint}"/>
                         </StackPanel>
                         <StackPanel>
-                            <TextBlock Text="工作集" Style="{StaticResource Bam.Muted}"/>
-                            <TextBlock Text="{Binding Memory}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding MemoryHint}"/>
+                            <TextBlock Text="工作集" Style="{StaticResource Bam.FieldLabel}"/>
+                            <TextBlock Text="{Binding Memory}" Style="{StaticResource Bam.Value}" ToolTip="{Binding MemoryHint}"/>
                         </StackPanel>
                         <StackPanel>
-                            <TextBlock Text="运行时长" Style="{StaticResource Bam.Muted}"/>
-                            <TextBlock Text="{Binding Uptime}" Style="{StaticResource Bam.CompactValue}" ToolTip="{Binding UptimeHint}"/>
+                            <TextBlock Text="运行时长" Style="{StaticResource Bam.FieldLabel}"/>
+                            <TextBlock Text="{Binding Uptime}" Style="{StaticResource Bam.Value}" ToolTip="{Binding UptimeHint}"/>
                         </StackPanel>
                     </UniformGrid>
 
@@ -69,7 +69,7 @@
                             <Style TargetType="Grid">
                                 <Setter Property="Grid.Row" Value="1"/>
                                 <Setter Property="Grid.ColumnSpan" Value="2"/>
-                                <Setter Property="Margin" Value="{StaticResource Bam.Before.Small}"/>
+                                <Setter Property="Margin" Value="{StaticResource Bam.Before.Medium}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="True">
                                         <Setter Property="Grid.Row" Value="0"/>
@@ -119,6 +119,16 @@
                     </Grid>
                 </Grid>
             </Border>
+            <TextBlock Text="{Binding Script.EmulatorUsageLabel}" Style="{StaticResource Bam.Caption}"
+                       Margin="{StaticResource Bam.Before.Small}" TextTrimming="CharacterEllipsis"
+                       Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                       ToolTip="{Binding Script.EmulatorUsage.Hint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsage.Hint}"/>
+            <Button Content="{Binding Script.EmulatorAction}" IsEnabled="{Binding Script.CanUseEmulatorAction}"
+                    Visibility="{Binding Script.ShowEmulatorAction, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                    Command="{Binding DataContext.StartWithEmulatorCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                    CommandParameter="{Binding Script}" Margin="{StaticResource Bam.Before.Medium}"
+                    ToolTip="{Binding Script.EmulatorHint}" ToolTipService.ShowOnDisabled="True"
+                    AutomationProperties.HelpText="{Binding Script.EmulatorHint}"/>
         </StackPanel>
     </Border>
 </UserControl>

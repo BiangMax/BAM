@@ -25,13 +25,13 @@
     <Thickness x:Key="Bam.PanelPadding">16</Thickness>
     <Thickness x:Key="Bam.DensePanelPadding">14,10</Thickness>
     <Thickness x:Key="Bam.MetricPadding">14,8</Thickness>
-    <Thickness x:Key="Bam.StatusPadding">8,2</Thickness>
+    <Thickness x:Key="Bam.StatusPadding">8,3</Thickness>
     <Thickness x:Key="Bam.ButtonPadding">12,0</Thickness>
     <Thickness x:Key="Bam.RowPadding">12,8</Thickness>
     <Thickness x:Key="Bam.PagePadding">32,24,32,24</Thickness>
     <Thickness x:Key="Bam.PagePaddingNarrow">24</Thickness>
-    <Thickness x:Key="Bam.DashboardPadding">32,16,32,24</Thickness>
-    <Thickness x:Key="Bam.DashboardPaddingNarrow">24,12,24,24</Thickness>
+    <Thickness x:Key="Bam.DashboardPadding">24,14,24,12</Thickness>
+    <Thickness x:Key="Bam.EventRowPadding">0,5</Thickness>
     <Thickness x:Key="Bam.After.Section">0,0,0,24</Thickness>
     <Thickness x:Key="Bam.After.Block">0,0,0,16</Thickness>
     <Thickness x:Key="Bam.After.Heading">0,0,0,12</Thickness>
@@ -46,6 +46,8 @@
     <Thickness x:Key="Bam.Gap.Small">8,0,0,0</Thickness>
     <Thickness x:Key="Bam.Gap.SmallRight">0,0,8,0</Thickness>
     <Thickness x:Key="Bam.InlineGap">4,0,0,0</Thickness>
+    <Thickness x:Key="Bam.Gap.Input">8,0</Thickness>
+    <Thickness x:Key="Bam.Gap.Action">0,0,8,6</Thickness>
     <DrawingImage x:Key="Bam.Mark">
         <DrawingImage.Drawing>
             <DrawingGroup>

@@ -111,7 +111,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         var revision = _noticeRevision;
         var result = await Task.Run(() => monitor.ExecuteAsync(program, action, script.Identity, script.WindowHandle, token), token);
         if (revision != _noticeRevision || token.IsCancellationRequested) return;
-        if (result.Status == CommandStatus.Accepted && action is ProgramAction.Start or ProgramAction.Restart)
+        if (result.Status == CommandStatus.Accepted && action is ProgramAction.Start or ProgramAction.Restart or ProgramAction.StartWithEmulator)
         {
             if (ResolveLaunchNotice(Frame, program, pending.PreviousWorker, pending.PreviousFrame) is { } outcome)
                 SetNotice(outcome);
@@ -122,11 +122,15 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     });
 
     public Task<ProgramInstallation> ImportAsync(string path) => Task.Run(() => catalog.Import(path), _stop.Token);
+    public Task<LaunchEntry> ImportEmulatorAsync(string path) => Task.Run(() => catalog.ImportEmulator(path), _stop.Token);
+    public Task<string> ImportEmulatorImageAsync(string path) => Task.Run(() => catalog.ImportEmulatorImage(path), _stop.Token);
 
-    public Task SaveAsync(ProgramInstallation original, string name, string directory, string arguments, string? worker) =>
+    public Task SaveAsync(ProgramInstallation original, string name, string directory, string arguments, string? worker,
+        EmulatorStartup? emulator, EmulatorMonitoring? monitoring) =>
         Track(async token =>
         {
-            var program = await Task.Run(() => catalog.Edit(original, name, directory, arguments, worker), token);
+            var program = await Task.Run(() => catalog.Edit(original with { Emulator = emulator, EmulatorMonitor = monitoring },
+                name, directory, arguments, worker), token);
             await monitor.SaveAsync(program, token);
             SetNotice($"已保存 {program.Name} 的管理配置。");
         }, report: false);
@@ -226,6 +230,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             CanRestart = actions.Contains(ProgramAction.Restart),
             CanForce = actions.Contains(ProgramAction.Force),
             NeedsRelocation = !status.Metadata.EntryAvailable,
+            EmulatorUsage = status.EmulatorUsage,
             RedactDetails = RedactDetails
         };
     }

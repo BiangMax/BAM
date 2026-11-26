@@ -84,6 +84,17 @@ internal sealed record ScriptItem(
         _ => Tone.Neutral
     };
     public bool CanPrimary => NeedsRelocation || CanStart || CanActivate;
+    public bool ShowEmulatorAction => Installation?.SupportsEmulatorStartup == true;
+    public EmulatorResourceUsage? EmulatorUsage { get; init; }
+    public bool ShowEmulatorUsage => EmulatorUsage is not null;
+    public string? EmulatorUsageLabel => EmulatorUsage is { } usage
+        ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 内存 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
+        : null;
+    public bool CanUseEmulatorAction => ShowEmulatorAction && (Installation?.Emulator?.Entry is null || CanStart);
+    public string EmulatorAction => Installation?.Emulator?.Entry is null ? "设置模拟器启动" : "启动模拟器和软件";
+    public string EmulatorHint => Installation?.Emulator is { Entry: not null } setup
+        ? CanStart ? $"先打开选定的模拟器，等待 {setup.WaitSeconds} 秒，再启动软件。" : OperationHint
+        : "为此软件选择对应模拟器实例的快捷方式。";
     public string PrimaryAction => NeedsRelocation ? "重新定位" :
         Identity is not null || Process is ProcessState.Running or ProcessState.Stopping ? "打开窗口" : "启动软件";
     public string OperationHint => Issue ?? (Installation is null ? "演示数据仅供预览。" :

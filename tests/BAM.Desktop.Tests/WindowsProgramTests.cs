@@ -14,6 +14,50 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact(SkipUnless = nameof(InteractiveFixture), Skip = "Set BAM_PHASE3_FIXTURE=1 in an interactive Windows session.")]
+    public async Task EmulatorSamplerReadsOnlyTheOwnedProcessesAndRejectsReusedIdentity()
+    {
+        var root = Directory.CreateTempSubdirectory("Bam owned metrics ");
+        var executable = Path.Combine(root.FullName, $"BamMetrics{Guid.NewGuid():N}.exe");
+        try
+        {
+            await Compile(executable);
+            using var owned = Process.Start(new ProcessStartInfo(executable, "phase3 --instance=9") { WorkingDirectory = root.FullName })!;
+            try
+            {
+                using var platform = new WindowsProgramPlatform();
+                var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { new WindowsProgramFiles().ResolveImagePath(executable) };
+                var workers = await Until(() => Task.FromResult(platform.ScanEmulators(paths, Token)),
+                    scan => scan.Complete && scan.Workers.Any(worker => worker.Identity.Pid == owned.Id));
+                var worker = Assert.Single(workers.Workers);
+                Assert.NotNull(worker.WorkingSet);
+                Assert.NotNull(worker.CpuTime);
+                Assert.False(worker.CanTerminate);
+                Assert.Null(worker.Window);
+                Assert.Contains("--instance=9", platform.ReadEmulatorArguments(worker.Identity, Token)!);
+                var stale = new ProcessIdentity(worker.Identity.ImagePath, owned.Id, worker.Identity.CreatedAtUtc.AddTicks(-1));
+                Assert.Null(platform.ReadEmulatorArguments(stale, Token));
+                output.WriteLine("Verified read-only CPU, working set, instance arguments and stale identity rejection.");
+            }
+            finally
+            {
+                if (!owned.HasExited) owned.Kill();
+                await owned.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+        finally
+        {
+            try { await Until(() => Task.FromResult(RemoveFixture()), removed => removed); }
+            catch (TimeoutException) { output.WriteLine("The fixture directory remained locked after the process exited."); }
+        }
+
+        bool RemoveFixture()
+        {
+            try { root.Delete(recursive: true); return true; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return !root.Exists; }
+        }
+    }
+
+    [Fact(SkipUnless = nameof(InteractiveFixture), Skip = "Set BAM_PHASE3_FIXTURE=1 in an interactive Windows session.")]
     public async Task FixtureUsesOriginalBatchWorkingDirectoryAndControlsOnlyExactWorker()
     {
         var root = Directory.CreateTempSubdirectory("Bam owned fixture ");

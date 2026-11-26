@@ -125,7 +125,7 @@
                             <TextBlock Text="{Binding Selected.Timestamp}" Style="{StaticResource Bam.MonoText}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding Selected.Source}" Style="{StaticResource Bam.Caption}" Margin="{StaticResource Bam.After.Heading}"/>
                             <Border Style="{StaticResource Bam.Panel}" Background="{DynamicResource Bam.Inset}" Padding="{StaticResource Bam.RowPadding}">
-                                <TextBlock Text="{Binding Selected.Detail}" TextWrapping="Wrap" Foreground="{DynamicResource Bam.TextSecondary}"/>
+                                <TextBlock Text="{Binding Selected.Detail}" Style="{StaticResource Bam.BodyCopy}" Foreground="{DynamicResource Bam.TextSecondary}"/>
                             </Border>
                             <Button Content="复制记录" Command="{Binding CopyCommand}" HorizontalAlignment="Left" Margin="{StaticResource Bam.Before.Large}"/>
                             <TextBlock Text="{Binding CopyNotice}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap" Margin="{StaticResource Bam.Before.Small}"/>

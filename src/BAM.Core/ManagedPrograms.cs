@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace BAM.Core;
 
 public enum ProgramKind { Generic, MaaEnd, Maa, BBchannel }
-public enum ProgramAction { Start, Activate, Close, Restart, Force }
+public enum ProgramAction { Start, Activate, Close, Restart, Force, StartWithEmulator }
 public enum EventSeverity { Information, Warning, Error }
 
 public sealed record LaunchEntry(string OriginalPath, string TargetPath, string WorkingDirectory,
@@ -21,9 +21,25 @@ public sealed record LaunchEntry(string OriginalPath, string TargetPath, string 
         Arguments.Count(character => character == '"') % 2 == 0 && !Arguments.Any(char.IsControl);
 }
 
+public sealed record EmulatorStartup(LaunchEntry Entry, int WaitSeconds)
+{
+    public const int DefaultWaitSeconds = 30;
+    public const int MaximumWaitSeconds = 180;
+}
+
+public sealed record EmulatorMonitoring(string ImagePath, int? InstanceNumber = null, string? WorkerImagePath = null);
+
+public sealed record EmulatorResourceUsage(double? Cpu, double? WorkingSetMiB, string Hint);
+
 public sealed record ProgramInstallation(Guid Id, string Name, ProgramKind Kind, LaunchEntry Entry,
     string InstallDirectory, string[] WorkerPaths)
 {
+    public EmulatorStartup? Emulator { get; init; }
+    public EmulatorMonitoring? EmulatorMonitor { get; init; }
+
+    [JsonIgnore]
+    public bool SupportsEmulatorStartup => Kind is ProgramKind.MaaEnd or ProgramKind.BBchannel;
+
     [JsonIgnore]
     public ScriptDefinition Definition => new(Id, Name, Entry.TargetPath, WorkerPaths);
 }
@@ -42,7 +58,7 @@ public sealed record ProcessScan(bool Complete, IReadOnlySet<string> UnreadableN
 public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMetadata Metadata, ProcessState Process,
     WorkerSnapshot? Worker, double? Cpu, double? WorkingSetMiB, TimeSpan? Uptime, string? Issue,
     IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false,
-    GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null);
+    GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null, EmulatorResourceUsage? EmulatorUsage = null);
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
     double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms);
@@ -65,6 +81,9 @@ public interface IProgramFiles
 public interface IProgramPlatform
 {
     ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation);
+    ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
+        new(false, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
+    string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation) => null;
     CommandResult Launch(LaunchEntry entry);
     CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window);
 }

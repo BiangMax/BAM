@@ -16,7 +16,7 @@
                     <StackPanel Orientation="Horizontal">
                         <ui:SymbolIcon Symbol="Search24" FontSize="16" Margin="{StaticResource Bam.Gap.Right}"
                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        <TextBlock Text="自动检测"/>
+                        <TextBlock Text="自动检测" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource Bam.PrimaryButton}" Content="手动添加" IsEnabled="{Binding CanManage}"
@@ -135,18 +135,19 @@
                             <Button Content="{Binding PrimaryAction}" Style="{StaticResource Bam.PrimaryButton}" IsEnabled="{Binding CanPrimary}"
                                     Command="{Binding DataContext.PrimaryCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
                                     CommandParameter="{Binding}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
-                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
+                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Action}"/>
                             <Button Content="正常关闭" IsEnabled="{Binding CanClose}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
-                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Right}"/>
+                                    AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Action}"/>
                             <Button Content="重启软件" IsEnabled="{Binding CanRestart}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.RestartScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
-                                    Margin="{StaticResource Bam.Gap.Right}"
+                                    Margin="{StaticResource Bam.Gap.Action}"
                                     AutomationProperties.HelpText="{Binding OperationHint}"/>
                             <Button Content="强制结束…" IsEnabled="{Binding CanForce}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
-                                    Command="{Binding DataContext.ForceScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"/>
+                                    Command="{Binding DataContext.ForceScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                    CommandParameter="{Binding}" Margin="{StaticResource Bam.Gap.Action}"/>
                         </WrapPanel>
-                        <TextBlock Text="{Binding OperationHint}" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.Before.Medium}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding OperationHint}" Style="{StaticResource Bam.Muted}" Margin="{StaticResource Bam.Before.Small}" TextWrapping="Wrap"/>
                         <WrapPanel Margin="{StaticResource Bam.Before.Medium}"
                                    Visibility="{Binding HasLiveDetails, Converter={StaticResource Bam.VisibleWhenTrue}}">
                             <Button Content="编辑配置" Margin="{StaticResource Bam.Gap.Right}"

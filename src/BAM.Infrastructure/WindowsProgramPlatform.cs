@@ -7,7 +7,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace BAM.Infrastructure;
 
-public sealed class WindowsProgramPlatform : IProgramPlatform, IDisposable
+public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposable
 {
     private const uint Query = 0x1000;
     private const uint Synchronize = 0x00100000;
@@ -31,7 +31,13 @@ public sealed class WindowsProgramPlatform : IProgramPlatform, IDisposable
     }
 
     // Scans are serialized by the manager. References are retained only for matched workers.
-    public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation)
+    public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation) =>
+        Scan(paths, readResources, observeOnly: false, cancellation);
+
+    public ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
+        Scan(paths, readResources: true, observeOnly: true, cancellation);
+
+    private ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, bool observeOnly, CancellationToken cancellation)
     {
         var names = paths.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         HashSet<string> unreadable = new(StringComparer.OrdinalIgnoreCase);
@@ -73,6 +79,11 @@ public sealed class WindowsProgramPlatform : IProgramPlatform, IDisposable
                         }
                         if (!IsLive(handle)) continue;
                         long? memory = readResources ? ReadWorkingSet(handle) : null;
+                        if (observeOnly)
+                        {
+                            if (IsLive(handle)) found.Add(new(identity, cpu, memory, null, null, false));
+                            continue;
+                        }
                         var integrity = ReadIntegrity(handle);
                         bool? controlAllowed = integrity is not null && _integrity is not null ? integrity <= _integrity : null;
                         using var terminate = OpenProcess(Terminate | Query | Synchronize, false, identity.Pid);
@@ -88,6 +99,8 @@ public sealed class WindowsProgramPlatform : IProgramPlatform, IDisposable
                 complete = Marshal.GetLastPInvokeError() == 18;
             }
         }
+
+        if (observeOnly) return new(complete, unreadable, found, exits);
 
         if (found.Count > 0)
         {

@@ -8,6 +8,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private static readonly StringComparer Paths = StringComparer.OrdinalIgnoreCase;
     private readonly SemaphoreSlim _gate = new(1);
     private readonly long _started = clock.GetTimestamp();
+    private readonly EmulatorResources _emulators = new(platform, clock);
     private readonly List<ProgramInstallation> _programs = [];
     private readonly HashSet<string> _suppressedPaths = new(Paths);
     private readonly Dictionary<Guid, ProgramMetadata> _metadata = [];
@@ -79,6 +80,11 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             throw new ArgumentException("此工作程序已有管理记录，请在现有记录中修改。");
         var next = _programs.ToList();
         var index = next.FindIndex(existing => existing.Id == program.Id);
+        if (program.Emulator is { } setup && (index < 0 || next[index].Emulator != setup) &&
+            catalog.EmulatorIssue(program, setup) is { } issue)
+            throw new ArgumentException(issue);
+        if (program.EmulatorMonitor is { } monitoring && (index < 0 || next[index].EmulatorMonitor != monitoring))
+            InstallationCatalog.ValidateEmulatorMonitoring(monitoring);
         if (index < 0) next.Add(program);
         else next[index] = program;
         var suppression = _suppressedPaths.Except(program.WorkerPaths.Append(program.Entry.OriginalPath), Paths).ToArray();
@@ -132,6 +138,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             bool refreshMetadata = _metadataAt is null || clock.GetElapsedTime(_metadataAt.Value, stamp) >= TimeSpan.FromSeconds(30);
             if (refreshMetadata) _metadataAt = stamp;
             var scan = Scan(resources, cancellation);
+            var emulatorUsage = _emulators.Sample(_programs, resources, stamp, cancellation);
             List<ProgramStatus> statuses = [];
             Dictionary<ProcessIdentity, (long Time, TimeSpan Cpu)> nextCpu = [];
             foreach (var program in _programs)
@@ -186,6 +193,11 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     state = worker is not null ? ProcessState.Stopping : state;
                     issue ??= "操作正在进行。";
                 }
+                if (pending == ProgramAction.StartWithEmulator && worker is null && state == ProcessState.Stopped)
+                {
+                    state = ProcessState.Starting;
+                    issue = "正在依次启动模拟器和软件。";
+                }
                 if (worker is null && state == ProcessState.Stopped && !expectedExit)
                 {
                     if (previous?.Worker is { } old && _exits.TryGetValue(old.Identity, out var code) && code is > 0)
@@ -201,7 +213,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 if (worker is { Window: null }) issue ??= "未发现可管理的窗口。";
                 if (worker is { CanTerminate: false } && issue is null) issue = "当前权限无法强制结束此实例。";
                 var current = new ProgramStatus(program, metadata, state, worker, cpu, worker?.WorkingSet / 1048576d, upt, issue,
-                    actions, launchConfirmationTimedOut);
+                    actions, launchConfirmationTimedOut, EmulatorUsage: emulatorUsage.GetValueOrDefault(program.Id));
                 await RecordTransition(previous, current, expectedExit, resources, cancellation).ConfigureAwait(false);
                 _previous[program.Id] = current;
                 statuses.Add(current);
@@ -227,6 +239,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         ProcessIdentity? selected, nint window, CancellationToken cancellation)
     {
         var delegated = false;
+        var starts = action is ProgramAction.Start or ProgramAction.StartWithEmulator;
         var result = new CommandResult(CommandStatus.Failed, "操作未完成。");
         try
         {
@@ -242,7 +255,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     return await ReportResult(requested, action, new(CommandStatus.Denied,
                         "工作程序与此安装不匹配，请重新定位。"), cancellation).ConfigureAwait(false);
                 var match = Match(requested, Scan(false, cancellation));
-                if (action == ProgramAction.Start)
+                if (starts)
                 {
                     if (match.State != ProcessState.Stopped)
                         return await ReportResult(requested, action, new(CommandStatus.Denied,
@@ -253,11 +266,18 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     return await ReportResult(requested, action, new(CommandStatus.IdentityChanged,
                         match.Issue ?? "原进程或窗口已改变，请重新选择。"), cancellation).ConfigureAwait(false);
 
-                if ((action is ProgramAction.Start or ProgramAction.Restart) && catalog.Availability(requested) is { } issue)
+                if ((starts || action == ProgramAction.Restart) && catalog.Availability(requested) is { } issue)
                     return await ReportResult(requested, action, new(CommandStatus.Denied, issue), cancellation).ConfigureAwait(false);
+                if (action == ProgramAction.StartWithEmulator)
+                {
+                    var emulatorIssue = requested.Emulator is { } setup ? catalog.EmulatorIssue(requested, setup)
+                        : "请先为此软件设置模拟器。";
+                    if (emulatorIssue is not null)
+                        return await ReportResult(requested, action, new(CommandStatus.Denied, emulatorIssue), cancellation).ConfigureAwait(false);
+                }
                 _busy.Add(requested.Id, action);
                 delegated = true;
-                if (action != ProgramAction.Start)
+                if (!starts)
                 {
                     result = platform.Control(requested.Definition, action == ProgramAction.Restart ? ProgramAction.Close : action,
                         selected!, match.Worker!.Window);
@@ -275,6 +295,8 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
 
             if (action == ProgramAction.Start)
                 result = await LaunchAsync(requested, false, cancellation).ConfigureAwait(false);
+            else if (action == ProgramAction.StartWithEmulator)
+                result = await LaunchWithEmulatorAsync(requested, requested.Emulator!, cancellation).ConfigureAwait(false);
             else if (action != ProgramAction.Activate && result.Status == CommandStatus.Accepted)
             {
                 result = await WaitForExit(requested, selected!, action == ProgramAction.Restart, cancellation).ConfigureAwait(false);
@@ -299,6 +321,22 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         return await ChangeAsync(() => ReportResult(requested, action, result, cancellation), cancellation).ConfigureAwait(false);
     }
 
+    private async Task<CommandResult> LaunchWithEmulatorAsync(ProgramInstallation program, EmulatorStartup setup,
+        CancellationToken cancellation)
+    {
+        var result = await Task.Run(() => platform.Launch(setup.Entry), cancellation).ConfigureAwait(false);
+        if (result.Status != CommandStatus.Accepted)
+            return new(result.Status, $"模拟器启动未提交，软件未启动。{result.Reason}");
+        await ChangeAsync(async () =>
+        {
+            await WriteEvent(program, EventSeverity.Information, "已请求启动模拟器",
+                $"等待 {setup.WaitSeconds} 秒后尝试启动软件。", cancellation).ConfigureAwait(false);
+            return true;
+        }, cancellation).ConfigureAwait(false);
+        await Task.Delay(TimeSpan.FromSeconds(setup.WaitSeconds), clock, cancellation).ConfigureAwait(false);
+        return await LaunchAsync(program, false, cancellation).ConfigureAwait(false);
+    }
+
     private async Task<CommandResult> LaunchAsync(ProgramInstallation program, bool restart, CancellationToken cancellation)
     {
         await _gate.WaitAsync(cancellation).ConfigureAwait(false);
@@ -313,15 +351,22 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         }
         finally { _gate.Release(); }
         // ShellExecute can wait for a target-specific UAC decision. Other installations continue to be sampled.
-        var result = await Task.Run(() => platform.Launch(program.Entry), cancellation).ConfigureAwait(false);
-        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        CommandResult? result = null;
         try
         {
-            if (result.Status == CommandStatus.Accepted) _launches[program.Id] = new(clock.GetTimestamp(), true, restart);
-            else _launches.Remove(program.Id);
+            result = await Task.Run(() => platform.Launch(program.Entry), cancellation).ConfigureAwait(false);
+            return result;
         }
-        finally { _gate.Release(); }
-        return result;
+        finally
+        {
+            await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                if (result?.Status == CommandStatus.Accepted) _launches[program.Id] = new(clock.GetTimestamp(), true, restart);
+                else _launches.Remove(program.Id);
+            }
+            finally { _gate.Release(); }
+        }
     }
 
     private async Task<CommandResult> WaitForExit(ProgramInstallation program, ProcessIdentity identity, bool restart,
@@ -438,6 +483,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         var name = action switch
         {
             ProgramAction.Start => "启动软件",
+            ProgramAction.StartWithEmulator => "启动模拟器和软件",
             ProgramAction.Close => "正常关闭",
             ProgramAction.Restart => "重启软件",
             ProgramAction.Force => "强制结束",

@@ -39,7 +39,7 @@
                                     </ComboBox.ItemContainerStyle>
                                 </ComboBox>
                                 <StackPanel>
-                                    <TextBlock Text="应用主题" Style="{StaticResource Bam.Value}"/>
+                                    <TextBlock Text="应用主题" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
                                     <TextBlock Text="深色、浅色或跟随 Windows 应用主题。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
@@ -49,7 +49,7 @@
                                 <ToggleButton Style="{StaticResource Bam.Switch}" DockPanel.Dock="Right" IsChecked="{Binding ReduceMotion}" VerticalAlignment="Center"
                                                  AutomationProperties.Name="减少动画" AutomationProperties.AutomationId="ReduceMotion"/>
                                 <StackPanel>
-                                    <TextBlock Text="减少动画" Style="{StaticResource Bam.Value}"/>
+                                    <TextBlock Text="减少动画" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
                                     <TextBlock Text="关闭页面过渡和控件反馈动画。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
@@ -69,7 +69,7 @@
                                               IsEnabled="{Binding CanCollectResources}"
                                               VerticalAlignment="Center" AutomationProperties.Name="脚本资源采样" AutomationProperties.AutomationId="CollectResources"/>
                                 <StackPanel>
-                                    <TextBlock Text="脚本资源采样" Style="{StaticResource Bam.Value}"/>
+                                    <TextBlock Text="脚本资源采样" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
                                     <TextBlock Text="{Binding ResourceDescription}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
@@ -88,7 +88,7 @@
                                 <ToggleButton Style="{StaticResource Bam.Switch}" DockPanel.Dock="Right" IsChecked="{Binding CloseToTray}" VerticalAlignment="Center"
                                                  AutomationProperties.Name="关闭时收起到托盘" AutomationProperties.AutomationId="CloseToTray"/>
                                 <StackPanel>
-                                    <TextBlock Text="关闭时收起到托盘" Style="{StaticResource Bam.Value}"/>
+                                    <TextBlock Text="关闭时收起到托盘" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
                                     <TextBlock Text="双击托盘图标恢复。可从托盘菜单退出 BAM。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
@@ -102,10 +102,46 @@
                                 Command="{Binding DataContext.OpenScriptsCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
                         <ui:SymbolIcon Symbol="FolderOpen24" Foreground="{DynamicResource Bam.PrimaryLight}" Margin="{StaticResource Bam.Gap.Right}"/>
                         <StackPanel>
-                            <TextBlock Text="脚本配置" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                            <TextBlock Text="脚本配置" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"
+                                       Margin="{StaticResource Bam.After.Small}"/>
                             <TextBlock Text="查看安装、启动入口和参数。" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource Bam.SettingsPanel}"
+                        Visibility="{Binding HasMaaLoopback, Converter={StaticResource Bam.VisibleWhenTrue}}">
+                    <StackPanel DataContext="{Binding Loopback}">
+                        <TextBlock Text="MAA 回环连通性" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                        <TextBlock Text="适用 MAA 6.23.1。配对标识仅用于关联，只在本次会话内保留。" Style="{StaticResource Bam.Caption}"
+                                   TextWrapping="Wrap" Margin="{StaticResource Bam.After.Medium}"/>
+                        <StackPanel IsEnabled="{Binding CanStart}">
+                            <TextBlock Text="本机端口" Style="{StaticResource Bam.FieldLabel}"/>
+                            <TextBox x:Name="MaaPort" Text="18373" MaxLength="5" AutomationProperties.Name="本机端口"
+                                     Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Text="MAA 用户标识（user）" Style="{StaticResource Bam.FieldLabel}"/>
+                            <PasswordBox x:Name="MaaUser" MaxLength="128" AutomationProperties.Name="MAA 用户标识"
+                                         Margin="{StaticResource Bam.After.Medium}"/>
+                            <TextBlock Text="MAA 设备标识（device）" Style="{StaticResource Bam.FieldLabel}"/>
+                            <PasswordBox x:Name="MaaDevice" MaxLength="128" AutomationProperties.Name="MAA 设备标识"/>
+                            <Button Content="启用回环" Click="StartMaaLoopback" Style="{StaticResource Bam.QuietButton}"
+                                    Margin="{StaticResource Bam.Before.Medium}" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" Margin="{StaticResource Bam.Before.Medium}"/>
+                        <StackPanel Visibility="{Binding Listening, Converter={StaticResource Bam.VisibleWhenTrue}}">
+                            <TextBox Text="{Binding Endpoint, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="回环基址"/>
+                            <TextBlock Text="取任务 /getTask，回报 /reportStatus" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding PollStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding ProbeStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
+                                       AutomationProperties.LiveSetting="Polite"/>
+                            <WrapPanel Margin="{StaticResource Bam.Before.Medium}">
+                                <Button Content="发送心跳" Command="{Binding ProbeCommand}" Style="{StaticResource Bam.QuietButton}"
+                                        Margin="{StaticResource Bam.Gap.Right}"/>
+                                <Button Content="停止监听" Command="{Binding StopCommand}" Style="{StaticResource Bam.QuietButton}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource Bam.SettingsPanel}" Margin="0">
@@ -117,7 +153,7 @@
                                 <Button DockPanel.Dock="Right" Style="{StaticResource Bam.QuietButton}" Command="{Binding OpenRepositoryCommand}"
                                         AutomationProperties.Name="打开 BAM GitHub 仓库" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="GitHub 仓库" Foreground="{DynamicResource Bam.PrimaryLight}"/>
+                                        <TextBlock Text="GitHub 仓库" Foreground="{DynamicResource Bam.PrimaryLight}" VerticalAlignment="Center"/>
                                         <ui:SymbolIcon Symbol="Open24" FontSize="16" Foreground="{DynamicResource Bam.PrimaryLight}" Margin="{StaticResource Bam.Gap.Small}"/>
                                     </StackPanel>
                                 </Button>

@@ -6,9 +6,10 @@
 
     <Style TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Bam.Font}"/>
-        <Setter Property="FontSize" Value="14"/>
+    </Style>
+    <Style x:Key="Bam.BodyCopy" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="LineHeight" Value="22"/>
-        <Setter Property="LineStackingStrategy" Value="BlockLineHeight"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style x:Key="Bam.PageTitle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="28"/>
@@ -17,18 +18,18 @@
     </Style>
     <Style x:Key="Bam.SectionTitle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="18"/>
-        <Setter Property="LineHeight" Value="24"/>
         <Setter Property="FontWeight" Value="{StaticResource Bam.Weight.Emphasis}"/>
     </Style>
     <Style x:Key="Bam.CardTitle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="16"/>
-        <Setter Property="LineHeight" Value="22"/>
         <Setter Property="FontWeight" Value="{StaticResource Bam.Weight.Emphasis}"/>
     </Style>
     <Style x:Key="Bam.Caption" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="12"/>
-        <Setter Property="LineHeight" Value="18"/>
         <Setter Property="Foreground" Value="{DynamicResource Bam.TextSecondary}"/>
+    </Style>
+    <Style x:Key="Bam.FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource Bam.Caption}">
+        <Setter Property="Margin" Value="{StaticResource Bam.After.Small}"/>
     </Style>
     <Style x:Key="Bam.Muted" TargetType="TextBlock" BasedOn="{StaticResource Bam.Caption}">
         <Setter Property="Foreground" Value="{DynamicResource Bam.TextMuted}"/>
@@ -43,11 +44,9 @@
         <Setter Property="FontWeight" Value="{StaticResource Bam.Weight.Emphasis}"/>
         <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
     </Style>
-    <Style x:Key="Bam.CompactValue" TargetType="TextBlock" BasedOn="{StaticResource Bam.Value}">
-        <Setter Property="LineHeight" Value="20"/>
-    </Style>
     <Style x:Key="Bam.NavigationLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontWeight" Value="{StaticResource Bam.Weight.Body}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
         <Style.Triggers>
             <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                 <Setter Property="FontWeight" Value="{StaticResource Bam.Weight.Emphasis}"/>
@@ -219,6 +218,18 @@
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource Bam.FocusVisual}"/>
     </Style>
+    <Style TargetType="TextBox">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="MinHeight" Value="{StaticResource Bam.ControlHeight}"/>
+        <Setter Property="Padding" Value="{StaticResource Bam.Gap.Input}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style TargetType="PasswordBox">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="MinHeight" Value="{StaticResource Bam.ControlHeight}"/>
+        <Setter Property="Padding" Value="{StaticResource Bam.Gap.Input}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
     <Style x:Key="Bam.Combo" TargetType="ComboBox">
         <Setter Property="FontFamily" Value="{StaticResource Bam.Font}"/>
         <Setter Property="FontSize" Value="13"/>
@@ -262,7 +273,7 @@
                         <DockPanel Margin="{TemplateBinding Padding}" IsHitTestVisible="False" VerticalAlignment="Center">
                             <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronDown16" FontSize="13" Margin="{StaticResource Bam.Gap.Small}"/>
                             <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" VerticalAlignment="Center"/>
                         </DockPanel>
                         <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
                                AllowsTransparency="True" PopupAnimation="None" VerticalOffset="4" HorizontalOffset="-10">
@@ -408,7 +419,7 @@
         <Setter Property="ContentTemplate">
             <Setter.Value>
                 <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding}" Style="{StaticResource Bam.BodyCopy}"/>
                 </DataTemplate>
             </Setter.Value>
         </Setter>
