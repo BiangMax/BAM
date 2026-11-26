@@ -19,6 +19,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     private IReadOnlyList<ProgramEvent>? _previousEvents;
     private long _noticeRevision;
     private LaunchNotice? _launchNotice;
+    private string? _discoveryIssue;
+    private string? _installationReadIssue;
 
     public event EventHandler? Updated;
     public bool IsDemo => false;
@@ -26,6 +28,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     public IReadOnlyList<LogEntry> Logs { get; private set; } = [];
     public bool HasResourceSource => true;
     public ProgramFrame? Frame { get; private set; }
+    public string? DetectionIssue => _installationReadIssue ?? _discoveryIssue;
     public bool RedactDetails { get; set; }
     public string? Notice { get; private set; }
     public string? GetLogSourceNotice(string source) => null;
@@ -39,16 +42,20 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         Wake();
     }
 
-    public void Start(Func<Action, Task> dispatch) => _monitor = Task.Run(async () =>
+    public void Start(Func<Action, Task> dispatch, bool discover = true) => _monitor = Task.Run(async () =>
     {
         var token = _stop.Token;
         try
         {
             await monitor.InitializeAsync(token).ConfigureAwait(false);
-            try { await monitor.DiscoverAsync(token).ConfigureAwait(false); }
+            try { if (discover) await monitor.DiscoverAsync(token).ConfigureAwait(false); }
             catch (Exception error) when (IsExpected(error))
             {
-                await dispatch(() => SetNotice("自动发现结果无法保存，请在脚本管理中重试。")).ConfigureAwait(false);
+                await dispatch(() =>
+                {
+                    _discoveryIssue = "无法完成自动检测，请检查安装配置或重试。";
+                    SetNotice(_discoveryIssue);
+                }).ConfigureAwait(false);
             }
             while (!token.IsCancellationRequested)
             {
@@ -58,21 +65,28 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
                     frame = await maaEndTasks.ObserveAsync(frame, token).ConfigureAwait(false);
                 var items = frame.Programs.Select(ToScript).ToArray();
                 var events = monitor.Events;
-                await dispatch(() => Publish(frame, items, events)).ConfigureAwait(false);
+                var readIssue = monitor.InstallationReadIssue;
+                await dispatch(() => Publish(frame, items, events, readIssue)).ConfigureAwait(false);
                 await _wake.WaitAsync(options.Delay, token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error) when (IsExpected(error))
         {
-            await dispatch(() => SetNotice("实时监控无法继续，请检查本地文件权限后重新打开 BAM。")).ConfigureAwait(false);
+            await dispatch(() =>
+            {
+                const string notice = "实时监控无法继续，请检查本地文件权限后重新打开 BAM。";
+                if (Frame is null) _discoveryIssue = monitor.InstallationReadIssue ?? notice;
+                SetNotice(notice);
+            }).ConfigureAwait(false);
         }
     });
 
-    private void Publish(ProgramFrame frame, IReadOnlyList<ScriptItem> scripts, IReadOnlyList<ProgramEvent> events)
+    private void Publish(ProgramFrame frame, IReadOnlyList<ScriptItem> scripts, IReadOnlyList<ProgramEvent> events, string? readIssue)
     {
         if (_stop.IsCancellationRequested) return;
         Frame = frame;
+        _installationReadIssue = readIssue;
         if (_launchNotice is { } pending && ResolveLaunchNotice(frame, pending.Program, pending.PreviousWorker,
             pending.PreviousFrame) is { } outcome)
         {
@@ -92,6 +106,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     public Task DiscoverAsync() => Track(async token =>
     {
         var count = await monitor.DiscoverAsync(token);
+        if (Frame is not null) _discoveryIssue = null;
         SetNotice(count > 0 ? $"已添加 {count} 个新安装。" : "没有发现新安装。");
     });
 
@@ -101,7 +116,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         SetNotice("已移除管理记录。");
     });
 
-    public Task ExecuteAsync(ScriptItem script, ProgramAction action) => Track(async token =>
+    public Task ExecuteAsync(ScriptItem script, ProgramAction action, LaunchEntry? confirmedEntry = null) => Track(async token =>
     {
         if (script.Installation is not { } program) return;
         var previousWorker = script.Identity ?? Frame?.Programs
@@ -109,9 +124,11 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         var pending = new LaunchNotice(program, previousWorker, Frame);
         SetNotice($"{script.Name} · 正在处理操作");
         var revision = _noticeRevision;
-        var result = await Task.Run(() => monitor.ExecuteAsync(program, action, script.Identity, script.WindowHandle, token), token);
+        var result = await Task.Run(() => monitor.ExecuteAsync(program, action, script.Identity, script.WindowHandle, token, confirmedEntry), token);
         if (revision != _noticeRevision || token.IsCancellationRequested) return;
-        if (result.Status == CommandStatus.Accepted && action is ProgramAction.Start or ProgramAction.Restart or ProgramAction.StartWithEmulator)
+        var trackLaunch = (result.Status == CommandStatus.Accepted && action is ProgramAction.Start or ProgramAction.Restart or ProgramAction.StartWithEmulator)
+            || (result.Status == CommandStatus.Unknown && action is ProgramAction.Start or ProgramAction.Restart);
+        if (trackLaunch)
         {
             if (ResolveLaunchNotice(Frame, program, pending.PreviousWorker, pending.PreviousFrame) is { } outcome)
                 SetNotice(outcome);
@@ -119,6 +136,18 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             return;
         }
         SetNotice($"{script.Name} · {result.Reason ?? "操作结果未知。"}");
+    });
+
+    public Task LaunchBatchAsync(IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests) => Track(async token =>
+    {
+        SetNotice($"正在依次处理 {requests.Count} 组启动请求…");
+        var results = await Task.Run(() => monitor.LaunchBatchAsync(requests, token), token);
+        var accepted = results.Count(item => item.Result.Status == CommandStatus.Accepted);
+        var summary = $"批量启动 · 已提交 {accepted}/{results.Count} 组";
+        if (accepted < results.Count) summary += "，悬停查看各组结果";
+        var details = string.Join(Environment.NewLine, results.Select(item =>
+            $"{item.Program.Name} · {item.Result.Reason ?? "结果未知。"}"));
+        SetNotice(summary, details: details);
     });
 
     public Task<ProgramInstallation> ImportAsync(string path) => Task.Run(() => catalog.Import(path), _stop.Token);
@@ -153,12 +182,15 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         }
     }
 
-    private void SetNotice(string notice, LaunchNotice? launch = null)
+    public string? NoticeDetails { get; private set; }
+
+    private void SetNotice(string notice, LaunchNotice? launch = null, string? details = null)
     {
         if (_stop.IsCancellationRequested) return;
         _noticeRevision++;
         _launchNotice = launch;
         Notice = notice;
+        NoticeDetails = details;
         Updated?.Invoke(this, EventArgs.Empty);
     }
 
@@ -198,6 +230,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     private ScriptItem ToScript(ProgramStatus status)
     {
         var program = status.Installation;
+        var entry = status.Metadata.EffectiveEntry ?? program.Entry;
         var (game, symbol, tone) = program.Kind switch
         {
             ProgramKind.MaaEnd => ("明日方舟：终末地", SymbolRegular.Apps24, Tone.Accent),
@@ -214,10 +247,11 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             (ProgramAction.Close, "正常关闭"), (ProgramAction.Restart, "重启"), (ProgramAction.Force, "强制结束") }
             .Where(action => actions.Contains(action.Item1)).Select(action => action.Item2).ToArray();
         return new(program.Name, game, status.Metadata.Version, symbol, tone, status.Process, status.Task,
-            program.InstallDirectory, program.Entry.WorkingDirectory, program.Entry.Arguments.Length == 0 ? "—" : program.Entry.Arguments,
+            program.InstallDirectory, entry.WorkingDirectory, entry.Arguments.Length == 0 ? "—" : entry.Arguments,
             $"{windowDetail}\n{(available.Length == 0 ? "暂无可用控制操作" : string.Join("、", available))} · {status.TaskHint ?? "未接入任务检测"}")
         {
             Installation = program,
+            EffectiveEntry = status.Metadata.EffectiveEntry,
             ActualIcon = status.Metadata.Icon is { } bytes ? _icons.GetValue(bytes, DecodeIcon) : null,
             VersionDetail = status.Metadata.VersionDetail,
             Issue = status.Issue,
@@ -225,12 +259,14 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             Identity = status.Worker?.Identity,
             WindowHandle = window?.Handle ?? 0,
             CanStart = actions.Contains(ProgramAction.Start),
+            CanStartWithEmulator = actions.Contains(ProgramAction.StartWithEmulator),
             CanActivate = actions.Contains(ProgramAction.Activate),
             CanClose = actions.Contains(ProgramAction.Close),
             CanRestart = actions.Contains(ProgramAction.Restart),
             CanForce = actions.Contains(ProgramAction.Force),
             NeedsRelocation = !status.Metadata.EntryAvailable,
             EmulatorUsage = status.EmulatorUsage,
+            PairedStartup = status.PairedStartup,
             RedactDetails = RedactDetails
         };
     }

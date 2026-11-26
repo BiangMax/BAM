@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
@@ -28,7 +27,10 @@ internal sealed partial class MaaLoopbackViewModel : ObservableObject
 
     [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ProbeCommand))]
     private bool _awaitingReport;
-    [ObservableProperty] private string _endpoint = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(GetTaskAddress), nameof(ReportStatusAddress))]
+    private string _portText = "18373";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(GetTaskAddress), nameof(ReportStatusAddress))]
+    private int? _boundPort;
     [ObservableProperty] private string _status = "已停止。";
     [ObservableProperty] private string _pollStatus = "";
     [ObservableProperty] private string _probeStatus = "";
@@ -40,13 +42,22 @@ internal sealed partial class MaaLoopbackViewModel : ObservableObject
     }
 
     public bool CanStart => !Busy && !Listening;
+    public string GetTaskAddress => Address(MaaLoopbackRoutes.GetTask);
+    public string ReportStatusAddress => Address(MaaLoopbackRoutes.ReportStatus);
     private bool CanStop() => !Busy && Listening;
     private bool CanProbe() => CanStop() && !AwaitingReport;
 
-    public async Task StartAsync(string portText, string user, string device)
+    private string Address(string route) => (BoundPort ?? ParsePort(PortText)) is { } port
+        ? FormattableString.Invariant($"http://127.0.0.1:{port}{route}") : "";
+
+    private static int? ParsePort(string text) =>
+        int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int port) && port is >= 1024 and <= 65535
+            ? port : null;
+
+    public async Task StartAsync(string user, string device)
     {
         if (!CanStart || _lifetime.IsCancellationRequested) return;
-        if (!int.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out int port) || port is < 1024 or > 65535)
+        if (ParsePort(PortText) is not { } port)
         {
             Status = "请输入 1024–65535 的端口号。";
             return;
@@ -58,7 +69,7 @@ internal sealed partial class MaaLoopbackViewModel : ObservableObject
             var boundPort = await _host.StartAsync(port, session, _lifetime);
             if (_lifetime.IsCancellationRequested) return;
             _session = session;
-            Endpoint = $"http://127.0.0.1:{boundPort}";
+            BoundPort = boundPort;
             Status = "已监听本机 IPv4 回环。";
             Listening = true;
             Refresh();
@@ -98,7 +109,8 @@ internal sealed partial class MaaLoopbackViewModel : ObservableObject
         _session = null;
         Listening = false;
         AwaitingReport = false;
-        Endpoint = PollStatus = ProbeStatus = "";
+        BoundPort = null;
+        PollStatus = ProbeStatus = "";
         return _host.StopAsync(CancellationToken.None);
     }
 

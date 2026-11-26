@@ -159,8 +159,12 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
             using var process = Process.Start(info);
             return new(CommandStatus.Accepted, "已提交启动请求，等待确认工作进程。");
         }
-        catch (Win32Exception error) { return NativeError(error.NativeErrorCode, "启动"); }
-        catch (InvalidOperationException) { return new(CommandStatus.Failed, "Windows 未能创建启动进程。"); }
+        catch (Win32Exception error) when (error.NativeErrorCode is 2 or 3 or 5 or 193 or 267 or 740 or 1223)
+        {
+            return NativeError(error.NativeErrorCode, "启动");
+        }
+        catch (Win32Exception) { return new(CommandStatus.Unknown, "Windows 未返回明确的启动结果。"); }
+        catch (InvalidOperationException) { return new(CommandStatus.Unknown, "Windows 未返回明确的启动结果。"); }
     }
 
     public CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window)

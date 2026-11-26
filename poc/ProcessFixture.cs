@@ -45,6 +45,20 @@ internal static class ProcessFixture
     }
     private static int Run(string[] args)
     {
+        if (args.Length == 1 && args[0] == "resource-load")
+        {
+            var buffer = new byte[64 * 1024 * 1024];
+            for (int offset = 0; offset < buffer.Length; offset += 4096) buffer[offset] = 1;
+            var elapsed = Stopwatch.StartNew();
+            while (elapsed.Elapsed < TimeSpan.FromMinutes(24))
+            {
+                var cycle = Stopwatch.StartNew();
+                while (cycle.ElapsedMilliseconds < 80) Thread.SpinWait(128);
+                Thread.Sleep(20);
+            }
+            GC.KeepAlive(buffer);
+            return 0;
+        }
         if (args.Length == 1 && args[0] == "window-test") return TestWindow();
         if (args.Length > 0 && args[0].StartsWith("phase3", StringComparison.Ordinal))
         {

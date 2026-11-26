@@ -35,4 +35,4 @@ Phase 2 已引入 WPF-UI 4.3.0、其传递依赖 WPF-UI.Abstractions 4.3.0 和 C
 
 ## 发布路径
 
-首选 x64 目录式便携包。Phase 1 已对 framework-dependent 的 `dotnet publish -c Release -r win-x64 --self-contained false` 完成烟测，启动入口为 BAM.exe。对缺运行时的干净 Windows 11，再比较 self-contained 目录包的体积、补丁责任与启动时间。先关闭 trimming 和单文件合并，保护 WPF/XAML、源生成和原生互操作兼容性。签名、MSIX/安装器、自动更新至 Phase 7 决策。
+Windows x64 便携包的根目录仅放 `BAM.exe`、`使用说明.txt` 和 `THIRD-PARTY`。从 Alpha 2 开始，发布脚本生成自包含单文件。托管程序集从包内加载，所需的原生库解包到 Windows 临时目录。发布保持不裁剪，并用打包后的可执行文件验证 WPF 启动、单实例和退出。常规开发构建仍使用框架依赖目录。签名、MSIX/安装器、自动更新至 Phase 7 决策。

@@ -10,9 +10,12 @@ internal sealed class ResourceHistory
     public const int WindowSeconds = 120;
     private readonly ResourcePoint[] _points = new ResourcePoint[WindowSeconds + 1];
     private int _start;
-    private int _knownPoints;
+    private int _cpuPoints;
+    private int _memoryPoints;
     public int Count { get; private set; }
-    public bool HasData => _knownPoints != 0;
+    public bool HasData => _cpuPoints != 0 || _memoryPoints != 0;
+    public bool HasCpu => _cpuPoints != 0;
+    public bool HasMemory => _memoryPoints != 0;
     public DateTimeOffset End { get; private set; }
     public TimeSpan EndPosition { get; private set; }
 
@@ -32,12 +35,14 @@ internal sealed class ResourceHistory
 
         _points[(_start + Count) % _points.Length] = point;
         Count++;
-        if (point.Cpu.HasValue || point.MemoryMiB.HasValue) _knownPoints++;
+        if (point.Cpu.HasValue) _cpuPoints++;
+        if (point.MemoryMiB.HasValue) _memoryPoints++;
     }
 
     private void DropOldest()
     {
-        if (_points[_start].Cpu.HasValue || _points[_start].MemoryMiB.HasValue) _knownPoints--;
+        if (_points[_start].Cpu.HasValue) _cpuPoints--;
+        if (_points[_start].MemoryMiB.HasValue) _memoryPoints--;
         _start = (_start + 1) % _points.Length;
         Count--;
     }

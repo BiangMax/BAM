@@ -12,17 +12,17 @@ public sealed class LocalProgramStore(string directory, bool sessionOnly = false
     private bool _canWrite = true;
     private bool _keepBackup;
 
-    public async Task<(IReadOnlyList<ProgramInstallation> Programs, IReadOnlyList<string> SuppressedPaths, string? Notice)> LoadAsync(CancellationToken cancellation)
+    public async Task<ProgramStoreLoad> LoadAsync(CancellationToken cancellation)
     {
         try
         {
             var data = await ReadAsync(_file, cancellation).ConfigureAwait(false);
-            return (data.Programs!, data.SuppressedPaths ?? [], null);
+            return new(data.Programs!, data.SuppressedPaths ?? [], null);
         }
         catch (NotSupportedException)
         {
             _canWrite = false;
-            return ([], [], "安装配置由较新版本创建，保存已停用。");
+            return new([], [], "安装配置由较新版本创建，保存已停用。", Readable: false);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -31,24 +31,24 @@ public sealed class LocalProgramStore(string directory, bool sessionOnly = false
             try
             {
                 var data = await ReadAsync(_file + ".bak", cancellation).ConfigureAwait(false);
-                return (data.Programs!, data.SuppressedPaths ?? [], _canWrite ? "已从上一份安装配置备份恢复。"
+                return new(data.Programs!, data.SuppressedPaths ?? [], _canWrite ? "已从上一份安装配置备份恢复。"
                     : "原配置暂不可读，已读取备份并停用保存。");
             }
             catch (NotSupportedException)
             {
                 _canWrite = false;
-                return ([], [], "安装配置备份由较新版本创建，保存已停用。");
+                return new([], [], "安装配置备份由较新版本创建，保存已停用。", Readable: false);
             }
             catch (Exception backup) when (backup is IOException or UnauthorizedAccessException or JsonException)
             {
                 if (!_canWrite || !IsMissingOrDamaged(backup))
                 {
                     _canWrite = false;
-                    return ([], [], "安装配置暂不可读，已停用保存。请检查文件权限或占用后重新打开 BAM。");
+                    return new([], [], "安装配置暂不可读，已停用保存。请检查文件权限或占用后重新打开 BAM。", Readable: false);
                 }
                 if ((error is FileNotFoundException or DirectoryNotFoundException) &&
-                    (backup is FileNotFoundException or DirectoryNotFoundException)) return ([], [], null);
-                return ([], [], "无法读取安装配置及备份，原文件将在下次保存时保留为损坏副本。");
+                    (backup is FileNotFoundException or DirectoryNotFoundException)) return new([], [], null);
+                return new([], [], "无法读取安装配置及备份，原文件将在下次保存时保留为损坏副本。", Readable: false);
             }
         }
     }

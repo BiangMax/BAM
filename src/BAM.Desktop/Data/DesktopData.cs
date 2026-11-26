@@ -23,6 +23,7 @@ internal sealed record ScriptItem(
     string InstallPath, string WorkingDirectory, string Arguments, string Capabilities)
 {
     public ProgramInstallation? Installation { get; init; }
+    public LaunchEntry? EffectiveEntry { get; init; }
     public ImageSource? ActualIcon { get; init; }
     public string? VersionDetail { get; init; }
     public string? Issue { get; init; }
@@ -30,6 +31,7 @@ internal sealed record ScriptItem(
     public ProcessIdentity? Identity { get; init; }
     public nint WindowHandle { get; init; }
     public bool CanStart { get; init; }
+    public bool CanStartWithEmulator { get; init; }
     public bool CanActivate { get; init; }
     public bool CanClose { get; init; }
     public bool CanRestart { get; init; }
@@ -86,14 +88,22 @@ internal sealed record ScriptItem(
     public bool CanPrimary => NeedsRelocation || CanStart || CanActivate;
     public bool ShowEmulatorAction => Installation?.SupportsEmulatorStartup == true;
     public EmulatorResourceUsage? EmulatorUsage { get; init; }
+    public PairedStartupProgress? PairedStartup { get; init; }
     public bool ShowEmulatorUsage => EmulatorUsage is not null;
     public string? EmulatorUsageLabel => EmulatorUsage is { } usage
         ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 内存 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
         : null;
-    public bool CanUseEmulatorAction => ShowEmulatorAction && (Installation?.Emulator?.Entry is null || CanStart);
-    public string EmulatorAction => Installation?.Emulator?.Entry is null ? "设置模拟器启动" : "启动模拟器和软件";
-    public string EmulatorHint => Installation?.Emulator is { Entry: not null } setup
-        ? CanStart ? $"先打开选定的模拟器，等待 {setup.WaitSeconds} 秒，再启动软件。" : OperationHint
+    public bool CanUseEmulatorAction => PairedStartup is null && ShowEmulatorAction &&
+        (Installation?.Emulator?.Entry is null || CanStartWithEmulator);
+    public string EmulatorAction => PairedStartup?.Phase switch
+    {
+        PairedStartupPhase.StartingEmulator => "正在启动模拟器…",
+        PairedStartupPhase.Waiting => $"{PairedStartup.RemainingSeconds} 秒后启动脚本",
+        PairedStartupPhase.StartingScript => "正在启动脚本…",
+        _ => Installation?.Emulator?.Entry is null ? "设置模拟器启动" : "启动模拟器和软件"
+    };
+    public string EmulatorHint => PairedStartup is not null ? EmulatorAction : Installation?.Emulator is { Entry: not null } setup
+        ? CanStartWithEmulator ? $"先打开选定的模拟器，等待 {setup.WaitSeconds} 秒，再启动软件。" : OperationHint
         : "为此软件选择对应模拟器实例的快捷方式。";
     public string PrimaryAction => NeedsRelocation ? "重新定位" :
         Identity is not null || Process is ProcessState.Running or ProcessState.Stopping ? "打开窗口" : "启动软件";

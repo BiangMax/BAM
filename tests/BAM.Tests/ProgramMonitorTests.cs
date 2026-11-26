@@ -133,6 +133,96 @@ public sealed class ProgramMonitorTests
         Assert.Empty(status.Actions);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CancellationBeforeDispatchAndDefiniteRejectionAllowAnotherAttempt(bool cancelBeforeDispatch)
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var scans = 0;
+        rig.Platform.Scanning = () =>
+        {
+            if (++scans == 2 && cancelBeforeDispatch) cancel.Cancel();
+        };
+        rig.Platform.LaunchResult = new(CommandStatus.Failed, "Rejected before dispatch");
+        var attempt = rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, cancel.Token);
+        if (cancelBeforeDispatch)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => attempt);
+            Assert.Empty(rig.Platform.Submitted);
+        }
+        else Assert.Equal(CommandStatus.Failed, (await attempt).Status);
+
+        Assert.Contains(ProgramAction.Start, Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).Actions);
+        rig.Platform.LaunchResult = new(CommandStatus.Accepted);
+        Assert.Equal(CommandStatus.Accepted, (await rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, Token)).Status);
+        Assert.Equal(cancelBeforeDispatch ? 1 : 2, rig.Platform.Launches);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnUnknownLaunchBlocksRedispatchUntilExactWorkerIsObserved(bool throwAfterDispatch)
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        rig.Platform.LaunchResult = new(CommandStatus.Unknown);
+        if (throwAfterDispatch) rig.Platform.Spawn = () => throw new IOException("fixture lost the result");
+        var result = await rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, Token);
+        Assert.Equal(CommandStatus.Unknown, result.Status);
+        Assert.Contains("结果未知", result.Reason);
+        rig.Clock.Tick(elapsedSeconds: 60);
+        rig.Platform.Workers = [rig.Worker(17, 1) with
+        {
+            Identity = new(Path.Combine(Root, "other", "MAA.exe"), 17, DateTimeOffset.UnixEpoch)
+        }];
+        var unknown = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        Assert.Equal(ProcessState.Unknown, unknown.Process);
+        Assert.Empty(unknown.Actions);
+        Assert.Equal(CommandStatus.Unknown, (await rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, Token)).Status);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Monitor.RemoveAsync(Id, Token));
+
+        rig.Platform.Workers = [rig.Worker(42, 1, creation: 2)];
+        var confirmed = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        Assert.Equal(ProcessState.Running, confirmed.Process);
+        Assert.Contains(ProgramAction.Activate, confirmed.Actions);
+        Assert.Equal(CommandStatus.Denied, (await rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, Token)).Status);
+        Assert.Single(rig.Platform.Submitted);
+    }
+
+    [Fact]
+    public async Task UnknownEmulatorLaunchPreventsRetryAndNeverDispatchesTheScript()
+    {
+        using var rig = new Rig();
+        var program = rig.SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 5");
+        await rig.Monitor.InitializeAsync(Token);
+        rig.Platform.Spawn = () => throw new TimeoutException();
+        var result = await rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token);
+        Assert.Equal(CommandStatus.Unknown, result.Status);
+        Assert.Contains("模拟器启动请求的结果未知", result.Reason);
+        Assert.Equal(ProcessState.Unknown, Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).Process);
+        Assert.Equal(CommandStatus.Unknown, (await rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token)).Status);
+        Assert.Equal(program.Emulator!.Entry, Assert.Single(rig.Platform.Submitted));
+    }
+
+    [Fact]
+    public async Task CancellationAfterPlatformEntryPreservesTheUncertainLaunch()
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        rig.Platform.Spawn = () =>
+        {
+            cancel.Cancel();
+            throw new OperationCanceledException(cancel.Token);
+        };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, cancel.Token));
+        Assert.Equal(CommandStatus.Unknown, (await rig.Monitor.ExecuteAsync(Program, ProgramAction.Start, null, 0, Token)).Status);
+        Assert.Single(rig.Platform.Submitted);
+    }
+
     [Fact]
     public async Task AnUnrequestedNonzeroExitIsLoggedOnce()
     {
@@ -238,6 +328,64 @@ public sealed class ProgramMonitorTests
         Assert.DoesNotContain(WorkerPath, rig.Store.Suppressed);
     }
 
+    [Theory]
+    [InlineData(true, true, true, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(false, false, true, true)]
+    public async Task ShortcutFieldsAreInheritedIndependentlyAndConfirmedBeforeDispatch(bool inheritArgs,
+        bool inheritDirectory, bool changeArgs, bool changeDirectory)
+    {
+        using var rig = new Rig();
+        var link = Path.Combine(Root, "MAA.lnk");
+        var initial = rig.Files.Links[link] = Entry with { OriginalPath = link, Arguments = "--original" };
+        var catalog = new InstallationCatalog(rig.Files);
+        var imported = catalog.Import(link);
+        Assert.True(imported.InheritShortcutArguments);
+        Assert.True(imported.InheritShortcutDirectory);
+        var program = catalog.Edit(imported with
+        {
+            InheritShortcutArguments = inheritArgs,
+            InheritShortcutDirectory = inheritDirectory
+        }, imported.Name, inheritDirectory ? Root : Path.Combine(Root, "custom"), inheritArgs ? initial.Arguments : "--custom", null);
+        rig.Store.Programs = [program];
+        await rig.Monitor.InitializeAsync(Token);
+        var prior = Assert.IsType<LaunchEntry>(Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).Metadata.EffectiveEntry);
+        rig.Files.Links[link] = initial with
+        {
+            Arguments = changeArgs ? "--from-link" : initial.Arguments,
+            WorkingDirectory = changeDirectory ? Path.Combine(Root, "link-directory") : Root
+        };
+
+        if ((inheritArgs && changeArgs) || (inheritDirectory && changeDirectory))
+        {
+            Assert.Equal(CommandStatus.Denied, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, prior)).Status);
+            Assert.Empty(rig.Platform.Submitted);
+        }
+        var current = Assert.IsType<LaunchEntry>(Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).Metadata.EffectiveEntry);
+        Assert.Equal(inheritArgs ? rig.Files.Links[link].Arguments : "--custom", current.Arguments);
+        Assert.Equal(inheritDirectory ? rig.Files.Links[link].WorkingDirectory : Path.Combine(Root, "custom"), current.WorkingDirectory);
+        Assert.Equal(CommandStatus.Accepted, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, current)).Status);
+        Assert.Equal(current, Assert.Single(rig.Platform.Submitted));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ShortcutTargetAndElevationChangesAreRejectedDespiteFieldInheritance(bool targetChanged)
+    {
+        using var rig = new Rig();
+        var link = Path.Combine(Root, "MAA.lnk");
+        var initial = rig.Files.Links[link] = Entry with { OriginalPath = link };
+        var program = new InstallationCatalog(rig.Files).Import(link);
+        rig.Store.Programs = [program];
+        await rig.Monitor.InitializeAsync(Token);
+        rig.Files.Links[link] = targetChanged ? initial with { TargetPath = Path.Combine(Root, "another.exe") } : initial with { RunAs = true };
+        Assert.Equal(CommandStatus.Denied, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, program.Entry)).Status);
+        Assert.Empty(rig.Platform.Submitted);
+    }
+
     [Fact]
     public async Task ResourceSummaryHidesPartialDataWhenAnotherInstallCannotBeVerified()
     {
@@ -270,6 +418,7 @@ public sealed class ProgramMonitorTests
     [Theory]
     [InlineData(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1")]
     [InlineData(ProgramKind.BBchannel, "启动.cmd", "--instance 2")]
+    [InlineData(ProgramKind.Maa, "MAA.exe", "--instance 3")]
     public async Task EmulatorShortcutRunsBeforeTheOriginalScriptEntry(ProgramKind kind, string filename, string arguments)
     {
         using var rig = new Rig();
@@ -282,15 +431,49 @@ public sealed class ProgramMonitorTests
         Assert.Equal(arguments, rig.Platform.Submitted[0].Arguments);
         var waiting = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
         Assert.Equal(ProcessState.Starting, waiting.Process);
+        Assert.Equal(new(PairedStartupPhase.Waiting, 30), waiting.PairedStartup);
         Assert.Empty(waiting.Actions);
         Assert.Equal(CommandStatus.Denied,
             (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token)).Status);
-        rig.Clock.Tick(elapsedSeconds: 29);
+        rig.Clock.Tick(wallSeconds: -120, elapsedSeconds: 29);
+        var almostReady = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        Assert.Equal(new(PairedStartupPhase.Waiting, 1), almostReady.PairedStartup);
         Assert.Single(rig.Platform.Submitted);
         rig.Clock.Tick();
         Assert.Equal(CommandStatus.Accepted, (await operation).Status);
         Assert.Equal(new[] { program.Emulator.Entry, program.Entry }, rig.Platform.Submitted);
         Assert.Empty(rig.Platform.Controls);
+        Assert.Equal(new(PairedStartupPhase.StartingScript), Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).PairedStartup);
+        rig.Platform.Workers = [MetricWorker(program.WorkerPaths[0], 42, 1)];
+        Assert.Null(Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).PairedStartup);
+    }
+
+    [Fact]
+    public async Task PendingEmulatorRequestHasNoCountdownBeforeAcceptance()
+    {
+        using var rig = new Rig();
+        var program = rig.SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1");
+        await rig.Monitor.InitializeAsync(Token);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Platform.LaunchResult = new(CommandStatus.Denied);
+        rig.Platform.Spawn = () =>
+        {
+            entered.SetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+        };
+        var operation = rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            rig.Clock.Tick(elapsedSeconds: 15);
+            Assert.Equal(new(PairedStartupPhase.StartingEmulator),
+                Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).PairedStartup);
+        }
+        finally { release.Set(); }
+        Assert.Equal(CommandStatus.Denied, (await operation).Status);
+        Assert.Null(Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).PairedStartup);
+        Assert.Single(rig.Platform.Submitted);
     }
 
     [Theory]
@@ -327,6 +510,7 @@ public sealed class ProgramMonitorTests
         if (blocker == "changed shortcut") Assert.Empty(rig.Platform.Submitted);
         else Assert.Equal(entry, Assert.Single(rig.Platform.Submitted));
         Assert.Empty(rig.Platform.Controls);
+        Assert.Null(Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs).PairedStartup);
     }
 
     [Fact]
@@ -337,6 +521,83 @@ public sealed class ProgramMonitorTests
         await rig.Monitor.InitializeAsync(Token);
         Assert.Equal(CommandStatus.Accepted, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token)).Status);
         Assert.Equal(program.Entry, Assert.Single(rig.Platform.Submitted));
+    }
+
+    [Fact]
+    public async Task OneBatchDispatchesThreeDistinctPairsInOrderAndRejectsAConcurrentBatch()
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch();
+        await rig.Monitor.InitializeAsync(Token);
+        var requested = programs.Select(program => (program, program.Entry)).ToArray();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var proceed = new ManualResetEventSlim();
+        rig.Platform.Spawn = () =>
+        {
+            if (rig.Platform.Launches != 1) return;
+            started.SetResult();
+            if (!proceed.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+        };
+        var batch = rig.Monitor.LaunchBatchAsync([.. requested, requested[0]], Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Monitor.LaunchBatchAsync(requested, Token));
+        }
+        finally { proceed.Set(); }
+        var results = await batch;
+        Assert.Equal(3, results.Count);
+        Assert.All(results, result => Assert.Equal(CommandStatus.Accepted, result.Result.Status));
+        Assert.Equal(programs.SelectMany(program => new[] { program.Emulator!.Entry, program.Entry }), rig.Platform.Submitted);
+        Assert.Empty(rig.Platform.Controls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BatchSkipsRunningOrConflictingPairsAndProcessesAnIndependentPair(bool duplicate)
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch(duplicate);
+        await rig.Monitor.InitializeAsync(Token);
+        if (!duplicate)
+        {
+            rig.Platform.Workers = [MetricWorker(programs[0].WorkerPaths[0], 111, 12)];
+            var second = programs[1].Emulator!.Entry;
+            rig.Files.Links[second.OriginalPath] = second with { Arguments = "--unexpected" };
+        }
+        var results = await rig.Monitor.LaunchBatchAsync(programs.Select(program => (program, program.Entry)).ToArray(), Token);
+        Assert.Equal(new[] { CommandStatus.Denied, CommandStatus.Denied, CommandStatus.Accepted },
+            results.Select(item => item.Result.Status));
+        Assert.Equal(new[] { programs[2].Emulator!.Entry, programs[2].Entry }, rig.Platform.Submitted);
+        Assert.Empty(rig.Platform.Controls);
+    }
+
+    [Fact]
+    public async Task AnEditedShortcutCannotDispatchItsScriptAfterTheEmulatorWait()
+    {
+        using var rig = new Rig();
+        var configured = rig.SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 3");
+        var link = Path.ChangeExtension(configured.Entry.OriginalPath, ".lnk");
+        var original = rig.Files.Links[link] = configured.Entry with { OriginalPath = link };
+        var program = new InstallationCatalog(rig.Files).Import(link) with { Emulator = configured.Emulator };
+        rig.Store.Programs = [program];
+        await rig.Monitor.InitializeAsync(Token);
+        var action = rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token, original);
+        await rig.Clock.DelayScheduled.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        rig.Files.Links[link] = original with { Arguments = "--changed" };
+        rig.Clock.Tick(elapsedSeconds: 30);
+        Assert.Equal(CommandStatus.Denied, (await action).Status);
+        Assert.Equal(program.Emulator!.Entry, Assert.Single(rig.Platform.Submitted));
+        var next = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        Assert.Contains(ProgramAction.Start, next.Actions);
+        Assert.DoesNotContain(ProgramAction.StartWithEmulator, next.Actions);
+        var retry = await rig.Monitor.ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, Token, next.Metadata.EffectiveEntry);
+        Assert.Contains("此前已提交模拟器启动", retry.Reason);
+        Assert.Single(rig.Platform.Submitted);
+        Assert.Equal(CommandStatus.Accepted, (await rig.Monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token,
+            next.Metadata.EffectiveEntry)).Status);
+        Assert.Equal(2, rig.Platform.Submitted.Count);
     }
 
     [Fact]
@@ -433,7 +694,7 @@ public sealed class ProgramMonitorTests
         public ProgramInstallation SetEmulatorStartup(ProgramKind kind, string filename, string arguments)
         {
             var target = Path.Combine(Root, "emulator.exe");
-            var shortcut = Path.Combine(Root, "instance.lnk");
+            var shortcut = Path.Combine(Root, $"{kind}-instance.lnk");
             var emulator = Files.Links[shortcut] = new(shortcut, target, Root, arguments);
             var entry = Path.Combine(Root, filename);
             var worker = kind == ProgramKind.BBchannel ? Path.Combine(Root, @"dist\BBchannel64\BBchannel.exe") : entry;
@@ -443,6 +704,18 @@ public sealed class ProgramMonitorTests
             };
             Store.Programs = [program];
             return program;
+        }
+
+        public ProgramInstallation[] SetStartupBatch(bool duplicate = false)
+        {
+            var programs = new[]
+            {
+                SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1"),
+                SetEmulatorStartup(ProgramKind.Maa, "MAA.exe", duplicate ? "--instance 1" : "--instance 2"),
+                SetEmulatorStartup(ProgramKind.BBchannel, "启动.cmd", "--instance 3")
+            }.Select(program => program with { Id = Guid.NewGuid(), Emulator = program.Emulator! with { WaitSeconds = 0 } }).ToArray();
+            Store.Programs = programs;
+            return programs;
         }
 
         public WorkerSnapshot Worker(int pid, double? cpu, int creation = 0) => new(
@@ -499,11 +772,13 @@ public sealed class ProgramMonitorTests
         public int EmulatorScans;
         public int Launches;
         public Action? Spawn;
+        public Action? Scanning;
         public CommandResult ControlResult = new(CommandStatus.Accepted);
         public CommandResult LaunchResult = new(CommandStatus.Accepted);
 
         public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation)
         {
+            Scanning?.Invoke();
             var copy = new Dictionary<ProcessIdentity, uint?>(Exits);
             Exits.Clear();
             return new(true, Unreadable, Workers, copy);
@@ -554,8 +829,8 @@ public sealed class ProgramMonitorTests
         public IReadOnlyList<ProgramInstallation> Programs = [Program];
         public int Saves;
         public IReadOnlyList<string> Suppressed { get; private set; } = [];
-        public Task<(IReadOnlyList<ProgramInstallation> Programs, IReadOnlyList<string> SuppressedPaths, string? Notice)> LoadAsync(CancellationToken cancellation) =>
-            Task.FromResult((Programs, Suppressed, (string?)null));
+        public Task<ProgramStoreLoad> LoadAsync(CancellationToken cancellation) =>
+            Task.FromResult(new ProgramStoreLoad(Programs, Suppressed, null));
         public Task SaveAsync(IReadOnlyList<ProgramInstallation> programs, IReadOnlyList<string> suppressedPaths, CancellationToken cancellation)
         {
             Programs = programs;

@@ -170,9 +170,9 @@
       "BAM": {
         "type": "Project",
         "dependencies": {
-          "BAM.Adapters": "[0.1.0-alpha.1, )",
-          "BAM.Core": "[0.1.0-alpha.1, )",
-          "BAM.Infrastructure": "[0.1.0-alpha.1, )",
+          "BAM.Adapters": "[0.1.0-alpha.2, )",
+          "BAM.Core": "[0.1.0-alpha.2, )",
+          "BAM.Infrastructure": "[0.1.0-alpha.2, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.15, )",
           "WPF-UI": "[4.3.0, )"
@@ -181,7 +181,7 @@
       "bam.adapters": {
         "type": "Project",
         "dependencies": {
-          "BAM.Core": "[0.1.0-alpha.1, )"
+          "BAM.Core": "[0.1.0-alpha.2, )"
         }
       },
       "bam.core": {
@@ -190,7 +190,7 @@
       "bam.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "BAM.Core": "[0.1.0-alpha.1, )"
+          "BAM.Core": "[0.1.0-alpha.2, )"
         }
       },
       "CommunityToolkit.Mvvm": {

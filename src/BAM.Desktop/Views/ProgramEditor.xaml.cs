@@ -15,7 +15,8 @@ public partial class ProgramEditor : Window
     private LaunchEntry? _emulator;
     private bool _working;
 
-    internal ProgramEditor(LiveDesktopData data, ProgramInstallation? program, bool focusEmulator = false)
+    internal ProgramEditor(LiveDesktopData data, ProgramInstallation? program, LaunchEntry? effectiveEntry,
+        bool focusEmulator = false)
     {
         _data = data;
         _installationId = program?.Id;
@@ -26,7 +27,7 @@ public partial class ProgramEditor : Window
         MonitorWorker.Text = program?.EmulatorMonitor?.WorkerImagePath ?? "";
         MonitorInstance.Text = program?.EmulatorMonitor?.InstanceNumber?.ToString(CultureInfo.InvariantCulture) ?? "";
         UpdateMonitorFields();
-        if (program is not null) ShowFields(program);
+        if (program is not null) ShowFields(program, effectiveEntry);
         if (focusEmulator) Loaded += (_, _) =>
         {
             ChooseEmulatorButton.BringIntoView();
@@ -34,13 +35,18 @@ public partial class ProgramEditor : Window
         };
     }
 
-    private void ShowFields(ProgramInstallation program)
+    private void ShowFields(ProgramInstallation program, LaunchEntry? effectiveEntry = null)
     {
         _program = program;
+        var entry = effectiveEntry ?? program.Entry;
         EntryPath.Text = program.Entry.OriginalPath;
         ProgramName.Text = program.Name;
-        WorkDirectory.Text = program.Entry.WorkingDirectory;
-        LaunchArguments.Text = program.Entry.Arguments;
+        var shortcut = string.Equals(Path.GetExtension(program.Entry.OriginalPath), ".lnk", StringComparison.OrdinalIgnoreCase);
+        InheritDirectory.Visibility = InheritArguments.Visibility = shortcut ? Visibility.Visible : Visibility.Collapsed;
+        InheritDirectory.IsChecked = program.InheritShortcutDirectory;
+        InheritArguments.IsChecked = program.InheritShortcutArguments;
+        WorkDirectory.Text = entry.WorkingDirectory;
+        LaunchArguments.Text = entry.Arguments;
         WorkerPath.Text = program.WorkerPaths.Length == 1 ? program.WorkerPaths[0] : "";
         EmulatorSettings.Visibility = program.SupportsEmulatorStartup ? Visibility.Visible : Visibility.Collapsed;
         EditorNotice.Text = "";
@@ -207,7 +213,15 @@ public partial class ProgramEditor : Window
         SaveButton.IsEnabled = false;
         try
         {
-            await _data.SaveAsync(program, ProgramName.Text, WorkDirectory.Text, LaunchArguments.Text, WorkerPath.Text, setup, monitoring);
+            var configured = program with
+            {
+                InheritShortcutDirectory = InheritDirectory.IsChecked == true,
+                InheritShortcutArguments = InheritArguments.IsChecked == true
+            };
+            await _data.SaveAsync(configured, ProgramName.Text,
+                configured.InheritShortcutDirectory ? program.Entry.WorkingDirectory : WorkDirectory.Text,
+                configured.InheritShortcutArguments ? program.Entry.Arguments : LaunchArguments.Text,
+                WorkerPath.Text, setup, monitoring);
             if (IsLoaded) DialogResult = true;
         }
         catch (Exception error) when (LiveDesktopData.IsExpected(error))

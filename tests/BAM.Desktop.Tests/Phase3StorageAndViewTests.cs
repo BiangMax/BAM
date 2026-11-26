@@ -1,4 +1,5 @@
 using System.IO;
+using BAM.Adapters;
 using BAM.Core;
 using BAM.Desktop.Data;
 using BAM.Desktop.ViewModels;
@@ -83,6 +84,85 @@ public sealed class Phase3StorageAndViewTests : IDisposable
         }, program, null, oldFrame));
     }
 
+    [Theory]
+    [InlineData("empty", "尚未添加脚本")]
+    [InlineData("found", "尚未添加脚本")]
+    [InlineData("unreadable", "未能确认脚本列表")]
+    [InlineData("failed", "未能确认脚本列表")]
+    public async Task FirstDetectionWaitsForInventoryBeforeShowingItsOutcome(string outcome, string expectedTitle)
+    {
+        var fixture = new DetectionFixture();
+        var catalog = new InstallationCatalog(fixture);
+        using var monitor = new ProgramMonitor(catalog, fixture, fixture, fixture, TimeProvider.System);
+        using var live = new LiveDesktopData(monitor, catalog);
+        var dashboard = new DashboardViewModel(live);
+        var updated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            live.Start(action =>
+            {
+                action();
+                updated.TrySetResult();
+                return Task.CompletedTask;
+            });
+            await fixture.Loading.Task.WaitAsync(Token);
+            Assert.True(dashboard.IsDetecting);
+            Assert.Equal("正在检测脚本", dashboard.DetectionTitle);
+            Assert.Equal("— / —", dashboard.ProcessCount);
+            Assert.Empty(dashboard.Cards);
+            Assert.False(updated.Task.IsCompleted);
+
+            if (outcome == "failed") fixture.Loaded.SetException(new IOException("injected load failure"));
+            else fixture.Loaded.SetResult(outcome switch
+            {
+                "found" => new([Program("fixture")], [], null),
+                "unreadable" => new([], [], "无法读取安装配置。", Readable: false),
+                _ => new([], [], null)
+            });
+            await updated.Task.WaitAsync(Token);
+            Assert.False(dashboard.IsDetecting);
+            if (outcome == "found") Assert.Equal("fixture", Assert.Single(dashboard.Cards).Script.Name);
+            else
+            {
+                Assert.Empty(dashboard.Cards);
+                Assert.Equal(expectedTitle, dashboard.DetectionTitle);
+                Assert.Equal(outcome is "failed" or "unreadable", dashboard.DetectionIssue is not null);
+                Assert.Equal(outcome == "empty" ? "0 / 0" : "— / —", dashboard.ProcessCount);
+            }
+        }
+        finally { await live.StopAsync(); }
+    }
+
+    private sealed class DetectionFixture : IProgramStore, IProgramEventStore, IProgramFiles, IProgramPlatform
+    {
+        public TaskCompletionSource Loading { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<ProgramStoreLoad> Loaded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<ProgramStoreLoad> LoadAsync(CancellationToken cancellation)
+        {
+            Loading.TrySetResult();
+            return Loaded.Task.WaitAsync(cancellation);
+        }
+
+        public Task SaveAsync(IReadOnlyList<ProgramInstallation> programs, IReadOnlyList<string> suppressedPaths,
+            CancellationToken cancellation) => throw new NotSupportedException();
+        Task<IReadOnlyList<ProgramEvent>> IProgramEventStore.LoadAsync(CancellationToken cancellation) =>
+            Task.FromResult<IReadOnlyList<ProgramEvent>>([]);
+        public Task AppendAsync(ProgramEvent entry, CancellationToken cancellation) => Task.CompletedTask;
+        public IEnumerable<string> FindShortcuts(CancellationToken cancellation) => [];
+        public LaunchEntry ReadEntry(string path) => throw new NotSupportedException();
+        public bool FileExists(string path) => true;
+        public bool DirectoryExists(string path) => true;
+        public string? ReadSmallText(string path) => null;
+        public string? ReadProductVersion(string path) => null;
+        public byte[]? ReadIcon(string path, int index) => null;
+        public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation) =>
+            new(true, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
+        public CommandResult Launch(LaunchEntry entry) => throw new NotSupportedException();
+        public CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window) =>
+            throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task TemporarilyLockedConfigIsNeverReplacedAfterLockClears()
     {
@@ -138,6 +218,30 @@ public sealed class Phase3StorageAndViewTests : IDisposable
         Assert.Equal("{corrupt", await File.ReadAllTextAsync(path + ".corrupt", Token));
         Assert.Equal("recovered", (await store.LoadAsync(Token)).Programs[0].Name);
         Assert.Contains("first", await File.ReadAllTextAsync(path + ".bak", Token));
+    }
+
+    [Fact]
+    public async Task LegacyShortcutKeepsItsSavedFieldsUntilInheritanceIsExplicitlyEnabled()
+    {
+        var original = Program("legacy");
+        original = original with
+        {
+            Entry = original.Entry with { OriginalPath = Path.ChangeExtension(original.Entry.OriginalPath, ".lnk"), Arguments = "--saved" }
+        };
+        var path = Path.Combine(_directory.FullName, "installations.json");
+        var program = System.Text.Json.JsonSerializer.SerializeToNode(original)!.AsObject();
+        program.Remove(nameof(ProgramInstallation.InheritShortcutArguments));
+        program.Remove(nameof(ProgramInstallation.InheritShortcutDirectory));
+        await File.WriteAllTextAsync(path, $$"""{"SchemaVersion":1,"Programs":[{{program.ToJsonString()}}]}""", Token);
+        var store = new LocalProgramStore(_directory.FullName);
+        var restored = Assert.Single((await store.LoadAsync(Token)).Programs);
+        Assert.False(restored.InheritShortcutArguments);
+        Assert.False(restored.InheritShortcutDirectory);
+        Assert.Equal(original.Entry, restored.Entry);
+        await store.SaveAsync([restored with { InheritShortcutArguments = true }], [], Token);
+        var updated = Assert.Single((await store.LoadAsync(Token)).Programs);
+        Assert.True(updated.InheritShortcutArguments);
+        Assert.False(updated.InheritShortcutDirectory);
     }
 
     [Theory]

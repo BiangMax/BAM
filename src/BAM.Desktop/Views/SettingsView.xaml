@@ -117,7 +117,8 @@
                                    TextWrapping="Wrap" Margin="{StaticResource Bam.After.Medium}"/>
                         <StackPanel IsEnabled="{Binding CanStart}">
                             <TextBlock Text="本机端口" Style="{StaticResource Bam.FieldLabel}"/>
-                            <TextBox x:Name="MaaPort" Text="18373" MaxLength="5" AutomationProperties.Name="本机端口"
+                            <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}" MaxLength="5" AutomationProperties.Name="本机端口"
+                                     AutomationProperties.AutomationId="MaaPort"
                                      Margin="{StaticResource Bam.After.Medium}"/>
                             <TextBlock Text="MAA 用户标识（user）" Style="{StaticResource Bam.FieldLabel}"/>
                             <PasswordBox x:Name="MaaUser" MaxLength="128" AutomationProperties.Name="MAA 用户标识"
@@ -127,11 +128,16 @@
                             <Button Content="启用回环" Click="StartMaaLoopback" Style="{StaticResource Bam.QuietButton}"
                                     Margin="{StaticResource Bam.Before.Medium}" HorizontalAlignment="Left"/>
                         </StackPanel>
+                        <TextBlock Text="取任务地址" Style="{StaticResource Bam.FieldLabel}" Margin="{StaticResource Bam.Before.Medium}"/>
+                        <TextBox Text="{Binding GetTaskAddress, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="取任务地址"
+                                 AutomationProperties.AutomationId="MaaGetTaskAddress"
+                                 Margin="{StaticResource Bam.After.Medium}"/>
+                        <TextBlock Text="回报地址" Style="{StaticResource Bam.FieldLabel}"/>
+                        <TextBox Text="{Binding ReportStatusAddress, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="回报地址"
+                                 AutomationProperties.AutomationId="MaaReportStatusAddress"/>
                         <TextBlock Text="{Binding Status}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite" Margin="{StaticResource Bam.Before.Medium}"/>
                         <StackPanel Visibility="{Binding Listening, Converter={StaticResource Bam.VisibleWhenTrue}}">
-                            <TextBox Text="{Binding Endpoint, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="回环基址"/>
-                            <TextBlock Text="取任务 /getTask，回报 /reportStatus" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding PollStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding ProbeStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
                                        AutomationProperties.LiveSetting="Polite"/>

@@ -23,10 +23,26 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        string? verificationProfile = null;
+        var discover = true;
+        var instanceName = "Biang.BAM";
+#if BAM_VERIFICATION
+        var profileArgument = Array.IndexOf(e.Args, "--verification-profile");
+        if (profileArgument >= 0 && profileArgument + 1 < e.Args.Length)
+        {
+            verificationProfile = Path.GetFullPath(e.Args[profileArgument + 1]);
+            discover = !e.Args.Contains("--verification-skip-discovery", StringComparer.Ordinal);
+            if (!discover)
+            {
+                var profileBytes = System.Text.Encoding.UTF8.GetBytes(verificationProfile);
+                instanceName += ".Verification." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(profileBytes));
+            }
+        }
+#endif
         var elevated = WindowsProgramPlatform.IsCurrentProcessElevated();
         try
         {
-            _instance = new SingleInstance(elevated == true);
+            _instance = new SingleInstance(elevated == true, instanceName);
             if (!_instance.IsPrimary)
             {
                 if (_instance.RequestActivation())
@@ -51,12 +67,7 @@ public partial class App : Application
 #if BAM_DEMO
         if (e.Args.Contains("--demo", StringComparer.Ordinal)) demo = new DemoDesktopData();
 #endif
-        var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM");
-#if BAM_VERIFICATION
-        var profileArgument = Array.IndexOf(e.Args, "--verification-profile");
-        if (profileArgument >= 0 && profileArgument + 1 < e.Args.Length)
-            profile = Path.GetFullPath(e.Args[profileArgument + 1]);
-#endif
+        var profile = verificationProfile ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM");
         var sessionOnly = elevated != false;
         _settingsStore = new SettingsStore(demo is not null, Path.Combine(profile, "settings.json"), sessionOnly);
         var cancellation = _lifetime.Token;
@@ -114,7 +125,7 @@ public partial class App : Application
         if (_live is not null) _live.RedactDetails = captureArgument >= 0;
 #endif
         window.Show();
-        _live?.Start(action => Dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background, cancellation).Task);
+        _live?.Start(action => Dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background, cancellation).Task, discover);
         _instance.Listen(() => Dispatcher.InvokeAsync(() =>
         {
             if (Dispatcher.HasShutdownStarted || !window.IsLoaded) return;

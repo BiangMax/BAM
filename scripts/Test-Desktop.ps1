@@ -1,9 +1,12 @@
 # Exercise only the BAM executable selected by build configuration inside this repository.
 [CmdletBinding()]
 param(
-    [ValidateSet('Build', 'Publish', 'Demo', 'DemoEmpty', 'Verification')] [string] $Output = 'Publish',
+    [ValidateSet('Build', 'Publish', 'Demo', 'DemoEmpty', 'Verification', 'VerificationEmpty', 'OwnLoad')] [string] $Output = 'Publish',
+    [string] $ExecutablePath,
     [switch] $Capture,
-    [string] $CaptureDirectory = 'artifacts/screenshots'
+    [string] $CaptureDirectory = 'artifacts/screenshots',
+    [ValidateSet('Both', 'Tray')] [string] $OwnLoadPhase = 'Both',
+    [ValidateRange(10, 600)] [int] $OwnLoadSeconds = 600
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,10 +14,20 @@ $root = Split-Path $PSScriptRoot
 $folder = switch ($Output) {
     Build { 'src/BAM.Desktop/bin/Release/net10.0-windows/win-x64' }
     Publish { 'artifacts/publish/win-x64' }
-    Verification { 'artifacts/publish/verification-win-x64' }
+    { $_ -in 'Verification', 'OwnLoad' } { 'artifacts/publish/verification-win-x64' }
+    VerificationEmpty { 'artifacts/publish/verification-empty-win-x64' }
     { $_ -in 'Demo', 'DemoEmpty' } { 'artifacts/publish/demo-win-x64' }
 }
-$exe = (Resolve-Path -LiteralPath (Join-Path $root "$folder/BAM.exe")).Path
+if ($ExecutablePath) {
+    if ($Output -ne 'Publish') { throw 'ExecutablePath is only used for production publish smoke tests.' }
+    $exe = (Resolve-Path -LiteralPath $ExecutablePath).Path
+    if ((Split-Path $exe -Leaf) -cne 'BAM.exe' -or
+        -not $exe.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Select a BAM.exe built inside this repository.'
+    }
+} else {
+    $exe = (Resolve-Path -LiteralPath (Join-Path $root "$folder/BAM.exe")).Path
+}
 $desktopRuntime = dotnet --list-runtimes |
     Where-Object { $_ -match "^Microsoft.WindowsDesktop.App $([Environment]::Version.Major)\." } |
     Select-Object -Last 1
@@ -28,7 +41,7 @@ foreach ($assembly in 'UIAutomationTypes', 'UIAutomationClient') {
 if (-not ('BamSmokeWindow' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'DesktopSmoke.Native.cs')
 }
-if ($Output -eq 'Verification') {
+if ($Output -in 'Verification', 'VerificationEmpty', 'OwnLoad') {
     $profile = Join-Path $root ('.local/phase3-desktop-' + [guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($profile)
 }
@@ -46,10 +59,11 @@ function Start-Bam {
     $info.RedirectStandardError = $true
     # Passing the same argument to production verifies that the provider is excluded.
     if ($Output -ne 'DemoEmpty') { $info.ArgumentList.Add('--demo') }
-    if ($Output -eq 'Verification') {
+    if ($Output -in 'Verification', 'VerificationEmpty', 'OwnLoad') {
         $info.ArgumentList.Add('--verification-profile')
         $info.ArgumentList.Add($profile)
     }
+    if ($Output -in 'VerificationEmpty', 'OwnLoad') { $info.ArgumentList.Add('--verification-skip-discovery') }
     if ($Capture) {
         $info.ArgumentList.Add('--capture-dir')
         $info.ArgumentList.Add($screenshots)
@@ -147,9 +161,38 @@ function Measure-OwnedBam([Diagnostics.Process] $Process, [string] $Scenario, [i
         $Scenario, $elapsed.Elapsed.TotalSeconds, $cpu, ($Process.WorkingSet64 / 1MB),
         ($Process.PrivateMemorySize64 / 1MB), $handles, $Process.HandleCount)
 }
+function Measure-OwnLoad($Process, [string] $Scenario, [scriptblock] $Verify) {
+    $elapsed = 0
+    Write-Output "START $OwnLoadSeconds-second $Scenario observation."
+    while ($elapsed -lt $OwnLoadSeconds) {
+        $seconds = [Math]::Min(120, $OwnLoadSeconds - $elapsed)
+        $elapsed += $seconds
+        Measure-OwnedBam $Process "$Scenario $elapsed/$OwnLoadSeconds" $seconds
+        & $Verify
+    }
+}
 
 $owned = [Collections.Generic.List[Diagnostics.Process]]::new()
 try {
+    if ($Output -eq 'OwnLoad') {
+        $fixturePath = Join-Path $profile 'BamResourceFixture.exe'
+        $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        & $compiler /nologo /target:exe /platform:x64 /reference:System.Windows.Forms.dll "/out:$fixturePath" (Join-Path $root 'poc/ProcessFixture.cs')
+        if ($LASTEXITCODE -ne 0) { throw 'Owned resource fixture compilation failed.' }
+        @{
+            SchemaVersion = 1
+            Programs = @(@{
+                Id = [guid]::NewGuid().ToString()
+                Name = '资源采样夹具'
+                Kind = 0
+                Entry = @{ OriginalPath = $fixturePath; TargetPath = $fixturePath; WorkingDirectory = $profile; Arguments = 'resource-load' }
+                InstallDirectory = $profile
+                WorkerPaths = @($fixturePath)
+            })
+        } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 'installations.json') -Encoding utf8
+        $fixture = Start-Process -FilePath $fixturePath -ArgumentList 'resource-load' -WorkingDirectory $profile -WindowStyle Hidden -PassThru
+        $owned.Add($fixture)
+    }
     $startup = [Diagnostics.Stopwatch]::StartNew()
     $primary = Start-Bam
     Wait-Window $primary
@@ -210,7 +253,6 @@ try {
         [BamSmokeWindow]::Resize($handle, $primary.Id, 920, 730)
         $overview = Wait-Element $window '总览内容'
         $scroll = $overview.GetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern)
-        $scroll.SetScrollPercent(-1, 22)
         $first = Wait-Element $window 'MaaEnd'
         $second = Wait-Element $window 'MAA'
         Wait-For {
@@ -219,26 +261,34 @@ try {
             $left.Width -gt 0 -and $right.Width -gt 0 -and $right.Left -gt $left.Left -and
                 [Math]::Abs($right.Top - $left.Top) -lt 2
         } 'Script cards did not reflow to two columns.'
-        $scroll.SetScrollPercent(-1, 0)
+        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 0) }
 
         [BamSmokeWindow]::Resize($handle, $primary.Id, 800, 540)
         $narrowScript = Wait-Element $window 'MaaEnd'
         $narrowChart = Wait-Element $window '资源监控'
+        $narrowEvents = Wait-Element $window '最近运行事件'
         $manageScripts = Wait-Element $window '管理脚本'
         Save-Window $primary $handle '03-dashboard-narrow'
+        Wait-For {
+            $scroll.Current.VerticallyScrollable -and -not $narrowChart.Current.IsOffscreen -and
+                -not $narrowEvents.Current.IsOffscreen -and
+                $narrowChart.Current.BoundingRectangle.Top -ge $overview.Current.BoundingRectangle.Bottom
+        } 'The narrow overview did not keep the chart and recent events below the scrollable area.'
+        $chartTop = $narrowChart.Current.BoundingRectangle.Top
+        $eventsTop = $narrowEvents.Current.BoundingRectangle.Top
         Wait-For {
             $viewport = $overview.Current.BoundingRectangle
             $script = $narrowScript.Current.BoundingRectangle
             $manage = $manageScripts.Current.BoundingRectangle
-            $chart = $narrowChart.Current
-            $script.Height -gt 0 -and $script.Top -ge $viewport.Top -and $script.Bottom -le $viewport.Bottom -and
-                $manage.Height -gt 0 -and $manage.Top -ge $viewport.Top -and $manage.Bottom -le $viewport.Bottom -and
-                ($chart.IsOffscreen -or $chart.BoundingRectangle.Top -ge $viewport.Bottom)
-        } 'The narrow overview did not prioritize script status over the chart.'
-        if ($Capture) {
-            $scroll.SetScrollPercent(-1, 24)
-            Save-Window $primary $handle '09-narrow-cards'
+            if ($script.Height -gt 0 -and $script.Top -ge $viewport.Top -and $script.Bottom -le $viewport.Bottom -and
+                $manage.Height -gt 0 -and $manage.Top -ge $viewport.Top -and $manage.Bottom -le $viewport.Bottom) { return $true }
+            $scroll.Scroll([Windows.Automation.ScrollAmount]::NoAmount, [Windows.Automation.ScrollAmount]::SmallIncrement)
+            $false
+        } 'The narrow overview did not scroll to the first script and its management entry.'
+        if ($narrowChart.Current.BoundingRectangle.Top -ne $chartTop -or $narrowEvents.Current.BoundingRectangle.Top -ne $eventsTop) {
+            throw 'Scrolling moved the chart or recent events.'
         }
+        Save-Window $primary $handle '09-narrow-cards'
         [void][BamSmokeWindow]::ShowWindowAsync($handle, 3)
         Wait-For { [BamSmokeWindow]::IsZoomed($handle) } 'Window did not maximize.'
         [void][BamSmokeWindow]::ShowWindowAsync($handle, 9)
@@ -252,6 +302,78 @@ try {
         Select-Item $nav '设置'
         if ((Toggle-Setting $window 'CloseToTray') -ne 'Off') { throw 'Close-to-tray did not disable.' }
         Write-Output "PASS Demo navigation, chart units, script selection, log filters, theme selection, reduced motion, resize, maximize/restore and tray reactivation ($dpi DPI)."
+    } elseif ($Output -eq 'VerificationEmpty') {
+        [void](Wait-Element $window '尚未添加脚本')
+        [void](Wait-Element $window '自动检测')
+        [void](Wait-Element $window '手动添加')
+        [void](Wait-Element $window '暂无资源采样')
+        $batch = Wait-Element $window 'LaunchPaired' -ById
+        if ($batch.Current.IsEnabled) { throw 'Batch launch was enabled with no configured pairs.' }
+        Select-Item $nav '设置'
+        $valuePattern = [Windows.Automation.ValuePattern]::Pattern
+        $poll = (Wait-Element $window 'MaaGetTaskAddress' -ById).GetCurrentPattern($valuePattern)
+        $report = (Wait-Element $window 'MaaReportStatusAddress' -ById).GetCurrentPattern($valuePattern)
+        if (-not $poll.Current.IsReadOnly -or -not $report.Current.IsReadOnly -or
+            $poll.Current.Value -ne 'http://127.0.0.1:18373/getTask' -or $report.Current.Value -ne 'http://127.0.0.1:18373/reportStatus') {
+            throw 'Loopback addresses were not available before starting the service.'
+        }
+        (Wait-Element $window 'MaaPort' -ById).GetCurrentPattern($valuePattern).SetValue('19373')
+        Wait-For { $poll.Current.Value -eq 'http://127.0.0.1:19373/getTask' -and
+            $report.Current.Value -eq 'http://127.0.0.1:19373/reportStatus' } 'Loopback addresses did not follow the selected port.'
+        [void](Wait-Element $window '已停止。')
+        Write-Output 'PASS Confirmed empty overview, add actions, and loopback addresses with listening off.'
+    } elseif ($Output -eq 'OwnLoad') {
+        [void](Wait-Element $window '资源采样夹具')
+        $checkSamples = {
+            Wait-For {
+                # Navigation can rebuild the page and its automation peers.
+                $plot = Find-Element $window '最近 120 秒资源曲线'
+                $plot -and $plot.Current.HelpText -like '*CPU 1/1 · 工作集 1/1' -and
+                    -not (Find-Element $window '暂无资源采样')
+            } 'The CPU and memory samples did not become visible.'
+        }
+        & $checkSamples
+        $memory = Wait-Element $window 'ChartMemory' -ById
+        $memory.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        [void](Wait-Element $window '工作集 · MiB')
+        & $checkSamples
+        $cpu = Wait-Element $window 'ChartCpu' -ById
+        $cpu.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        if ($OwnLoadPhase -eq 'Both') {
+            $scheduler = [Diagnostics.Stopwatch]::StartNew()
+            $before = $fixture.TotalProcessorTime
+            Measure-OwnLoad $primary 'foreground' $checkSamples
+            $fixture.Refresh()
+            $loadCpu = 100 * ($fixture.TotalProcessorTime - $before).TotalSeconds / $scheduler.Elapsed.TotalSeconds / [Environment]::ProcessorCount
+            $cpuSample = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
+                ForEach-Object { $_.Current.Name } | Where-Object { $_ -match '^脚本 CPU，(\d+(?:[.,]\d+)?%)$' } |
+                ForEach-Object { $_.Split('，')[1] } | Select-Object -First 1
+            if ($loadCpu -le 0 -or -not $cpuSample -or [math]::Abs([double]::Parse($cpuSample.TrimEnd('%')) - $loadCpu) -gt (30 / [Environment]::ProcessorCount)) {
+                throw "CPU measurement outside fixture tolerance. BAM=$cpuSample reference=$loadCpu"
+            }
+            Write-Output ('PASS Owned fixture CPU {0}; measured reference {1:N2}%.' -f $cpuSample, $loadCpu)
+        }
+
+        Select-Item $nav '设置'
+        if ((Toggle-Setting $window 'CloseToTray') -ne 'On') { throw 'Close-to-tray did not toggle.' }
+        Select-Item $nav '总览'
+        if (-not $primary.CloseMainWindow()) { throw 'Closing to tray failed.' }
+        Wait-For { -not [BamSmokeWindow]::IsWindowVisible($handle) } 'BAM did not hide to tray.'
+        Measure-OwnLoad $primary 'tray' {
+            if ($fixture.HasExited -or [BamSmokeWindow]::IsWindowVisible($handle)) { throw 'Fixture or tray state changed.' }
+        }
+        Test-Duplicate $primary $handle
+        & $checkSamples
+        $latestSample = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
+            ForEach-Object { $_.Current.Name } | Where-Object { $_ -match '^最近有效采样 \d{2}:\d{2}:\d{2}$' } | Select-Object -First 1
+        if (-not $latestSample) { throw 'No valid sample time after restoring the overview.' }
+        $sampleTime = [DateTime]::ParseExact($latestSample.Substring(7), 'HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+        $now = [DateTime]::Now
+        if ($sampleTime -gt $now) { $sampleTime = $sampleTime.AddDays(-1) }
+        if (($now - $sampleTime).TotalSeconds -gt 15) { throw 'The last valid sample after restoring the overview is stale.' }
+        Select-Item $nav '设置'
+        if ((Toggle-Setting $window 'CloseToTray') -ne 'Off') { throw 'Close-to-tray did not disable.' }
+        Write-Output 'PASS Owned tray sampling and fresh CPU and memory after restore.'
     } elseif ($Output -eq 'Verification') {
         [void](Wait-Element $window '本地进程监控')
         if (Find-Element $window '演示模式') { throw 'Verification build enabled the demo provider.' }

@@ -34,18 +34,21 @@ public sealed record EmulatorResourceUsage(double? Cpu, double? WorkingSetMiB, s
 public sealed record ProgramInstallation(Guid Id, string Name, ProgramKind Kind, LaunchEntry Entry,
     string InstallDirectory, string[] WorkerPaths)
 {
+    public bool InheritShortcutArguments { get; init; }
+    public bool InheritShortcutDirectory { get; init; }
     public EmulatorStartup? Emulator { get; init; }
     public EmulatorMonitoring? EmulatorMonitor { get; init; }
 
     [JsonIgnore]
-    public bool SupportsEmulatorStartup => Kind is ProgramKind.MaaEnd or ProgramKind.BBchannel;
+    public bool SupportsEmulatorStartup => Kind is ProgramKind.MaaEnd or ProgramKind.Maa or ProgramKind.BBchannel;
 
     [JsonIgnore]
     public ScriptDefinition Definition => new(Id, Name, Entry.TargetPath, WorkerPaths);
 }
 
 public sealed record ProgramMetadata(string Version, string VersionDetail, byte[]? Icon, bool EntryAvailable,
-    string? Issue, bool WorkerBindingValid = true, string? ProductVersion = null, string? ResourceVersion = null);
+    string? Issue, bool WorkerBindingValid = true, string? ProductVersion = null, string? ResourceVersion = null,
+    LaunchEntry? EffectiveEntry = null);
 
 public sealed record ProgramWindow(nint Handle, string Title, WindowState State, bool Responding);
 
@@ -55,10 +58,14 @@ public sealed record WorkerSnapshot(ProcessIdentity Identity, TimeSpan? CpuTime,
 public sealed record ProcessScan(bool Complete, IReadOnlySet<string> UnreadableNames,
     IReadOnlyList<WorkerSnapshot> Workers, IReadOnlyDictionary<ProcessIdentity, uint?> Exits);
 
+public enum PairedStartupPhase { StartingEmulator, Waiting, StartingScript }
+public sealed record PairedStartupProgress(PairedStartupPhase Phase, int? RemainingSeconds = null);
+
 public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMetadata Metadata, ProcessState Process,
     WorkerSnapshot? Worker, double? Cpu, double? WorkingSetMiB, TimeSpan? Uptime, string? Issue,
     IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false,
-    GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null, EmulatorResourceUsage? EmulatorUsage = null);
+    GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null, EmulatorResourceUsage? EmulatorUsage = null,
+    PairedStartupProgress? PairedStartup = null);
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
     double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms);
@@ -84,15 +91,20 @@ public interface IProgramPlatform
     ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
         new(false, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
     string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation) => null;
+    // Accepted means the OS accepted the request. Unknown means it may have been submitted.
+    // Denied, Unsupported and Failed indicate a definite rejection before dispatch.
     CommandResult Launch(LaunchEntry entry);
     CommandResult Control(ScriptDefinition script, ProgramAction action, ProcessIdentity identity, ProgramWindow? window);
 }
 
 public interface IProgramStore
 {
-    Task<(IReadOnlyList<ProgramInstallation> Programs, IReadOnlyList<string> SuppressedPaths, string? Notice)> LoadAsync(CancellationToken cancellation);
+    Task<ProgramStoreLoad> LoadAsync(CancellationToken cancellation);
     Task SaveAsync(IReadOnlyList<ProgramInstallation> programs, IReadOnlyList<string> suppressedPaths, CancellationToken cancellation);
 }
+
+public sealed record ProgramStoreLoad(IReadOnlyList<ProgramInstallation> Programs,
+    IReadOnlyList<string> SuppressedPaths, string? Notice, bool Readable = true);
 
 public interface IProgramEventStore
 {

@@ -22,7 +22,7 @@ public sealed class InstallationCatalog(IProgramFiles files)
                 var entry = files.ReadEntry(path);
                 var kind = Identify(entry);
                 if (kind == ProgramKind.Generic) continue;
-                var program = Describe(Guid.NewGuid(), KindName(kind), entry, kind, null);
+                var program = DescribeNew(entry, kind);
                 Validate(program, requireFiles: true);
                 if (!discovered.Any(existing => Overlaps(existing, program))) discovered.Add(program);
             }
@@ -38,8 +38,18 @@ public sealed class InstallationCatalog(IProgramFiles files)
     {
         var entry = files.ReadEntry(path);
         var kind = Identify(entry);
-        return Describe(Guid.NewGuid(), kind == ProgramKind.Generic
-            ? Path.GetFileNameWithoutExtension(entry.TargetPath) : KindName(kind), entry, kind, null);
+        return DescribeNew(entry, kind);
+    }
+
+    private ProgramInstallation DescribeNew(LaunchEntry entry, ProgramKind kind)
+    {
+        var shortcut = IsShortcut(entry);
+        var name = kind == ProgramKind.Generic ? Path.GetFileNameWithoutExtension(entry.TargetPath) : KindName(kind);
+        return Describe(Guid.NewGuid(), name, entry, kind, null) with
+        {
+            InheritShortcutArguments = shortcut,
+            InheritShortcutDirectory = shortcut
+        };
     }
 
     public ProgramInstallation Edit(ProgramInstallation source, string name, string directory, string arguments,
@@ -49,6 +59,8 @@ public sealed class InstallationCatalog(IProgramFiles files)
         var edited = Describe(source.Id, name.Trim(), entry, source.Kind,
             string.IsNullOrWhiteSpace(explicitWorker) ? null : explicitWorker.Trim()) with
         {
+            InheritShortcutArguments = source.InheritShortcutArguments,
+            InheritShortcutDirectory = source.InheritShortcutDirectory,
             Emulator = source.Emulator,
             EmulatorMonitor = source.EmulatorMonitor
         };
@@ -147,13 +159,11 @@ public sealed class InstallationCatalog(IProgramFiles files)
         if (!Paths.Equals(Path.GetExtension(entry.OriginalPath), ".lnk") && !Paths.Equals(entry.OriginalPath, entry.TargetPath))
             throw new ArgumentException("直接入口与启动目标不一致，请重新定位。");
         if (entry.ResolvedTarget is not null) ValidatePath(entry.ResolvedTarget, ".exe", ".cmd", ".bat");
-        ValidatePath(entry.WorkingDirectory);
+        ValidateLaunchValues(entry);
         ValidatePath(program.InstallDirectory);
         if (entry.IconPath is not null) ValidatePath(entry.IconPath);
-        if (entry.Arguments is null || entry.Arguments.Length > 4096 || entry.Arguments.Any(char.IsControl))
-            throw new ArgumentException("启动参数有换行、控制字符或过长。");
-        if (entry.IsBatch && !entry.HasSafeBatchArguments)
-            throw new ArgumentException("CMD/BAT 参数须成对使用双引号，路径及参数不可包含命令重定向或变量展开字符。");
+        if (!IsShortcut(entry) && (program.InheritShortcutArguments || program.InheritShortcutDirectory))
+            throw new ArgumentException("只有快捷方式入口可继承参数和工作目录。");
         if (program.WorkerPaths is not { Length: > 0 and <= 2 })
             throw new ArgumentException("请选择实际工作程序 EXE。");
         foreach (var worker in program.WorkerPaths)
@@ -164,7 +174,16 @@ public sealed class InstallationCatalog(IProgramFiles files)
                 throw new ArgumentException("该文件不是此安装可管理的工作程序。");
         }
         if (requireFiles && !HasWorkerBinding(program)) throw new ArgumentException("工作程序与此安装不匹配。");
-        if (requireFiles && Availability(program) is { } issue) throw new ArgumentException(issue);
+        if (requireFiles && Availability(program, out _) is { } issue) throw new ArgumentException(issue);
+    }
+
+    private static void ValidateLaunchValues(LaunchEntry entry)
+    {
+        ValidatePath(entry.WorkingDirectory);
+        if (entry.Arguments is null || entry.Arguments.Length > 4096 || entry.Arguments.Any(char.IsControl))
+            throw new ArgumentException("启动参数有换行、控制字符或过长。");
+        if (entry.IsBatch && !entry.HasSafeBatchArguments)
+            throw new ArgumentException("CMD/BAT 参数须成对使用双引号，路径及参数不可包含命令重定向或变量展开字符。");
     }
 
     public bool HasWorkerBinding(ProgramInstallation program)
@@ -178,19 +197,39 @@ public sealed class InstallationCatalog(IProgramFiles files)
         return program.WorkerPaths.All(allowed.Contains);
     }
 
-    public string? Availability(ProgramInstallation program)
+    public string? Availability(ProgramInstallation program, out LaunchEntry effective)
     {
-        if (!files.FileExists(program.Entry.OriginalPath)) return "启动入口已失效，请重新定位。";
-        if (!files.FileExists(program.Entry.TargetPath)) return "启动目标已失效，请重新定位。";
-        if (program.Kind == ProgramKind.BBchannel && !program.Entry.IsBatch &&
-            BbRootForWorker(program.Entry.ResolvedTarget ?? program.Entry.TargetPath) is { } bbRoot &&
+        var entry = effective = program.Entry;
+        if (!files.FileExists(entry.OriginalPath)) return "启动入口已失效，请重新定位。";
+        if (!files.FileExists(entry.TargetPath)) return "启动目标已失效，请重新定位。";
+        if (program.Kind == ProgramKind.BBchannel && !entry.IsBatch &&
+            BbRootForWorker(entry.ResolvedTarget ?? entry.TargetPath) is { } bbRoot &&
             files.FileExists(Path.Combine(bbRoot, "启动.cmd")))
             return "此 BBchannel 安装需要原启动.cmd，请重新定位。";
-        if (program.Entry.ResolvedTarget is { } target && !Paths.Equals(target, files.ResolveImagePath(program.Entry.TargetPath)))
+        if (entry.ResolvedTarget is { } target && !Paths.Equals(target, files.ResolveImagePath(entry.TargetPath)))
             return "启动目标的实际路径已变更，请重新定位。";
-        if (!files.DirectoryExists(program.Entry.WorkingDirectory)) return "工作目录已失效，请重新定位。";
+        if (IsShortcut(entry))
+        {
+            try
+            {
+                var current = files.ReadEntry(entry.OriginalPath);
+                if (!Paths.Equals(current.TargetPath, entry.TargetPath) || current.RunAs != entry.RunAs)
+                    return "快捷方式的目标或权限已变更，请重新选择入口。";
+                effective = entry with
+                {
+                    Arguments = program.InheritShortcutArguments ? current.Arguments : entry.Arguments,
+                    WorkingDirectory = program.InheritShortcutDirectory ? current.WorkingDirectory : entry.WorkingDirectory
+                };
+                ValidateLaunchValues(effective);
+            }
+            catch (ArgumentException error) { return error.Message; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                return "无法读取快捷方式，请重新选择入口。";
+            }
+        }
+        if (!files.DirectoryExists(effective.WorkingDirectory)) return "工作目录已失效，请重新定位。";
         if (!program.WorkerPaths.Any(files.FileExists)) return "工作程序已失效，请重新定位。";
-        if (HasLinkChanged(program.Entry)) return "快捷方式内容已变更，请重新选择入口。";
         return null;
     }
 
@@ -198,7 +237,7 @@ public sealed class InstallationCatalog(IProgramFiles files)
     {
         if (!HasWorkerBinding(program))
             return new("版本未知", "版本未知", null, false, "工作程序与此安装不匹配，请重新定位。", WorkerBindingValid: false);
-        var issue = Availability(program);
+        var issue = Availability(program, out var effective);
         var worker = program.WorkerPaths.FirstOrDefault(files.FileExists);
         var entry = program.Entry;
         var icon = entry.IconPath is { } path ? files.ReadIcon(path, entry.IconIndex) : null;
@@ -212,27 +251,14 @@ public sealed class InstallationCatalog(IProgramFiles files)
         if (resource is not null) parts.Add($"资源 {resource}");
         if (bundle is not null) parts.Add($"安装清单 {bundle}");
         return new(version, parts.Count == 0 ? "版本未知" : string.Join(" · ", parts), icon, issue is null, issue,
-            ProductVersion: product, ResourceVersion: resource);
+            ProductVersion: product, ResourceVersion: resource, EffectiveEntry: issue is null ? effective : null);
     }
 
     public static bool Overlaps(ProgramInstallation left, ProgramInstallation right) =>
         Paths.Equals(left.Entry.OriginalPath, right.Entry.OriginalPath) ||
         left.WorkerPaths.Intersect(right.WorkerPaths, Paths).Any();
 
-    private bool HasLinkChanged(LaunchEntry entry)
-    {
-        if (!Paths.Equals(Path.GetExtension(entry.OriginalPath), ".lnk")) return false;
-        try
-        {
-            var current = files.ReadEntry(entry.OriginalPath);
-            // The saved working directory and arguments can be overridden in BAM.
-            return !Paths.Equals(current.TargetPath, entry.TargetPath) || current.RunAs != entry.RunAs;
-        }
-        catch (Exception error) when (error is IOException or ArgumentException or UnauthorizedAccessException)
-        {
-            return true;
-        }
-    }
+    private static bool IsShortcut(LaunchEntry entry) => Paths.Equals(Path.GetExtension(entry.OriginalPath), ".lnk");
 
     private ProgramInstallation Describe(Guid id, string name, LaunchEntry entry, ProgramKind kind,
         string? explicitWorker)

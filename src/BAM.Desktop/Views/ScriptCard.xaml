@@ -124,6 +124,7 @@
                        Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
                        ToolTip="{Binding Script.EmulatorUsage.Hint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsage.Hint}"/>
             <Button Content="{Binding Script.EmulatorAction}" IsEnabled="{Binding Script.CanUseEmulatorAction}"
+                    AutomationProperties.AutomationId="ScriptEmulatorAction"
                     Visibility="{Binding Script.ShowEmulatorAction, Converter={StaticResource Bam.VisibleWhenTrue}}"
                     Command="{Binding DataContext.StartWithEmulatorCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
                     CommandParameter="{Binding Script}" Margin="{StaticResource Bam.Before.Medium}"

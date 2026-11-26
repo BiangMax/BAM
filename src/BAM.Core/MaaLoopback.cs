@@ -1,5 +1,11 @@
 namespace BAM.Core;
 
+public static class MaaLoopbackRoutes
+{
+    public const string GetTask = "/getTask";
+    public const string ReportStatus = "/reportStatus";
+}
+
 public enum MaaHeartbeatReport { Accepted, Unknown, Expired, Conflict }
 
 public sealed record MaaHeartbeatSnapshot(DateTimeOffset? LastPoll, RemoteCommandState State,

@@ -16,12 +16,33 @@
             <TextBlock Text="软件名称" Style="{StaticResource Bam.FieldLabel}"/>
             <TextBox x:Name="ProgramName" MaxLength="80" AutomationProperties.Name="软件名称" Margin="{StaticResource Bam.After.Medium}"/>
             <TextBlock Text="工作目录" Style="{StaticResource Bam.FieldLabel}"/>
+            <CheckBox x:Name="InheritDirectory" Content="工作目录跟随快捷方式" Visibility="Collapsed" Margin="{StaticResource Bam.After.Small}"/>
             <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                <DockPanel.Style>
+                    <Style TargetType="DockPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsChecked, ElementName=InheritDirectory}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DockPanel.Style>
                 <Button DockPanel.Dock="Right" Content="选择目录" Click="ChooseDirectory" Margin="{StaticResource Bam.Gap.Left}"/>
                 <TextBox x:Name="WorkDirectory" AutomationProperties.Name="工作目录"/>
             </DockPanel>
             <TextBlock Text="启动参数" Style="{StaticResource Bam.FieldLabel}"/>
-            <TextBox x:Name="LaunchArguments" MaxLength="4096" AutomationProperties.Name="启动参数" Margin="{StaticResource Bam.After.Medium}"/>
+            <CheckBox x:Name="InheritArguments" Content="启动参数跟随快捷方式" Visibility="Collapsed" Margin="{StaticResource Bam.After.Small}"/>
+            <TextBox x:Name="LaunchArguments" MaxLength="4096" AutomationProperties.Name="启动参数" Margin="{StaticResource Bam.After.Medium}">
+                <TextBox.Style>
+                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsChecked, ElementName=InheritArguments}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBox.Style>
+            </TextBox>
             <TextBlock Text="实际工作程序 EXE（启动器或脚本可指定）" Style="{StaticResource Bam.FieldLabel}"/>
             <DockPanel Margin="{StaticResource Bam.After.Medium}">
                 <Button DockPanel.Dock="Right" Content="选择 EXE" Click="ChooseWorker" Margin="{StaticResource Bam.Gap.Left}"/>

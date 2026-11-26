@@ -39,7 +39,7 @@
       "bam.adapters": {
         "type": "Project",
         "dependencies": {
-          "BAM.Core": "[0.1.0-alpha.1, )"
+          "BAM.Core": "[0.1.0-alpha.2, )"
         }
       },
       "bam.core": {
@@ -48,7 +48,7 @@
       "bam.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "BAM.Core": "[0.1.0-alpha.1, )"
+          "BAM.Core": "[0.1.0-alpha.2, )"
         }
       }
     },

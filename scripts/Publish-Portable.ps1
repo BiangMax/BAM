@@ -13,27 +13,27 @@ $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) { throw 'Select a new packaging output directory.' }
 $build = Join-Path $output 'build'
 $package = Join-Path $output 'BAM'
-dotnet restore $project --locked-mode -p:SelfContained=true -p:UseArtifactsOutput=true -p:ArtifactsPath=$build
-dotnet publish $project -c Release --self-contained true --no-restore --artifacts-path $build -o $package
+$bundle = @('-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:PublishTrimmed=false',
+    '-p:EnableSingleFileAnalyzer=false') # Keep the existing locked dependency graph. Verify the bundled app with a desktop smoke test.
+dotnet restore $project --locked-mode -p:SelfContained=true -p:UseArtifactsOutput=true -p:ArtifactsPath=$build @bundle
+dotnet publish $project -c Release --self-contained true --no-restore --artifacts-path $build -o $package @bundle
 
-$runtime = (Get-Content -LiteralPath (Join-Path $package 'BAM.runtimeconfig.json') -Raw | ConvertFrom-Json).runtimeOptions
+$runtimeConfig = Join-Path $build 'bin/BAM.Desktop/release_win-x64/BAM.runtimeconfig.json'
+$runtime = (Get-Content -LiteralPath $runtimeConfig -Raw | ConvertFrom-Json).runtimeOptions
 $frameworks = @('Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App', 'Microsoft.AspNetCore.App')
 if ($runtime.framework -or $runtime.frameworks -or $runtime.includedFrameworks.Count -ne $frameworks.Count -or
     @(Compare-Object $frameworks @($runtime.includedFrameworks.name)).Count -ne 0) { throw 'Self-contained runtime verification failed.' }
-foreach ($required in 'BAM.exe', 'hostfxr.dll', 'coreclr.dll', 'PresentationFramework.dll', 'Microsoft.AspNetCore.Server.Kestrel.Core.dll') {
-    if (-not (Test-Path -LiteralPath (Join-Path $package $required) -PathType Leaf)) { throw "Missing $required" }
+$payload = @(Get-ChildItem -LiteralPath $package -Force)
+if ($payload.Count -ne 1 -or $payload[0].PSIsContainer -or $payload[0].Name -cne 'BAM.exe') {
+    throw 'The publish directory must contain only the bundled BAM.exe.'
 }
-$disallowed = Get-ChildItem -LiteralPath $package -File -Recurse -Force | Where-Object {
-    $_.Name -in 'settings.json', 'installations.json', 'UIsettings.json', 'scripts_settings.json', 'web.config' -or
-    $_.Extension -in '.pdb', '.log', '.lnk', '.pfx', '.key', '.pem', '.trx'
-}
-if ($disallowed) { throw 'The package contains unexpected private or build files.' }
 
 $packages = $env:NUGET_PACKAGES
 if (-not $packages) { $packages = ((dotnet nuget locals global-packages --list) -split ':', 2)[1].Trim() }
 $notices = New-Item -Path (Join-Path $package 'THIRD-PARTY') -ItemType Directory
 Copy-Item -LiteralPath (Join-Path $root 'docs/releases/THIRD-PARTY-MIT.txt') -Destination $notices.FullName
-Copy-Item -LiteralPath (Join-Path $root "docs/releases/v$version.md") -Destination (Join-Path $package '使用说明.md')
+$readme = Get-Content -LiteralPath (Join-Path $root "docs/releases/v$version.md") -Raw
+Set-Content -LiteralPath (Join-Path $package '使用说明.txt') -Value ($readme -replace '(?m)^# ', '' -replace '\x60', '').TrimEnd() -Encoding utf8
 foreach ($framework in $runtime.includedFrameworks) {
     $path = Join-Path $packages ("{0}.runtime.win-x64/{1}" -f $framework.name.ToLowerInvariant(), $framework.version)
     $target = New-Item -Path (Join-Path $notices.FullName $framework.name) -ItemType Directory
@@ -53,6 +53,10 @@ foreach ($name in 'WPF-UI', 'WPF-UI.Abstractions', 'Microsoft.Extensions.Depende
 
 $zipName = "BAM-$version-win-x64.zip"
 $zip = Join-Path $output $zipName
+$rootEntries = @((Get-ChildItem -LiteralPath $package -Force).Name)
+if (@(Compare-Object @('BAM.exe', '使用说明.txt', 'THIRD-PARTY') $rootEntries -CaseSensitive).Count -ne 0) {
+    throw 'Unexpected top-level package layout.'
+}
 [IO.Compression.ZipFile]::CreateFromDirectory($package, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$zip.sha256" -Value "$hash  $zipName" -Encoding ascii

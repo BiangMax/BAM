@@ -128,7 +128,7 @@
                         Margin="{StaticResource Bam.Gap.Small}" ToolTip="查看错误日志"
                         AutomationProperties.AutomationId="OpenErrors"
                         Visibility="{Binding HasErrors, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
-                <TextBlock Text="{Binding OperationNotice}" ToolTip="{Binding OperationNotice}"
+                <TextBlock Text="{Binding OperationNotice}" ToolTip="{Binding OperationNoticeDetails}"
                            Margin="{StaticResource Bam.Gap.Left}" TextTrimming="CharacterEllipsis"
                            AutomationProperties.LiveSetting="Polite" Style="{StaticResource Bam.Muted}" VerticalAlignment="Center"/>
             </DockPanel>

@@ -98,7 +98,7 @@ public sealed class MaaLoopbackHost : IMaaLoopbackHost
             return;
         }
         string? path = request.Path.Value;
-        if (request.QueryString.HasValue || path is not ("/getTask" or "/reportStatus"))
+        if (request.QueryString.HasValue || path is not (MaaLoopbackRoutes.GetTask or MaaLoopbackRoutes.ReportStatus))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
@@ -140,7 +140,7 @@ public sealed class MaaLoopbackHost : IMaaLoopbackHost
             }
 
             timeout.Token.ThrowIfCancellationRequested();
-            if (path == "/getTask")
+            if (path == MaaLoopbackRoutes.GetTask)
             {
                 HeartbeatTask[] tasks = session.Poll() is { } probe ? [new(probe.ToString("N"), "HeartBeat")] : [];
                 await context.Response.WriteAsJsonAsync(new { tasks }, timeout.Token).ConfigureAwait(false);

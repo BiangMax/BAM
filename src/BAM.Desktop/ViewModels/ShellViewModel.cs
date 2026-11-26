@@ -27,7 +27,12 @@ internal sealed partial class ShellViewModel : ObservableObject
         _logs = logs;
         _settings = settings;
         _live = data as LiveDesktopData;
-        if (_live is not null) _live.Updated += (_, _) => OnPropertyChanged(nameof(OperationNotice));
+        if (_live is not null) _live.Updated += (_, _) =>
+        {
+            OnPropertyChanged(nameof(OperationNotice));
+            OnPropertyChanged(nameof(OperationNoticeDetails));
+            LaunchPairedCommand.NotifyCanExecuteChanged();
+        };
         _settings.PropertyChanged += OnSettingsChanged;
         _logs.PropertyChanged += OnLogsChanged;
         Navigation =
@@ -50,6 +55,7 @@ internal sealed partial class ShellViewModel : ObservableObject
     };
     public string MonitoringStatus => IsDemo ? "合成采样" : _settings.CollectResources ? "本地进程监控" : "资源采样已暂停";
     public string? OperationNotice => _live?.Notice;
+    public string? OperationNoticeDetails => _live?.NoticeDetails ?? OperationNotice;
     public bool HasErrors => _logs.ErrorCount > 0;
     public string ErrorLabel => $"{_logs.ErrorCount} 条错误";
     public static string Version { get; } = typeof(ShellViewModel).Assembly
@@ -105,9 +111,36 @@ internal sealed partial class ShellViewModel : ObservableObject
     private void ShowEditor(ScriptItem? script, bool focusEmulator)
     {
         if (_live is null) return;
-        var editor = new ProgramEditor(_live, script?.Installation, focusEmulator) { Owner = System.Windows.Application.Current.MainWindow };
+        var editor = new ProgramEditor(_live, script?.Installation, script?.EffectiveEntry, focusEmulator) { Owner = System.Windows.Application.Current.MainWindow };
         editor.ShowDialog();
     }
+
+    private bool CanLaunchPaired() => _live?.Scripts.Any(script => script.CanStartWithEmulator) == true;
+
+    [RelayCommand(CanExecute = nameof(CanLaunchPaired))]
+    private async Task LaunchPaired()
+    {
+        if (_live is null) return;
+        var requests = _live.Scripts.Where(script => script is
+            { CanStartWithEmulator: true, EffectiveEntry: not null, Installation.Emulator.Entry: not null })
+            .Select(script => (Program: script.Installation!, Entry: script.EffectiveEntry!)).ToArray();
+        if (requests.Length == 0) return;
+
+        var details = string.Join("\n\n", requests.Select(request =>
+            $"{request.Program.Name} · 等待 {request.Program.Emulator!.WaitSeconds} 秒\n" +
+            DescribeLaunch("模拟器", request.Program.Emulator.Entry) + "\n" + DescribeLaunch("软件", request.Entry)));
+        const string label = "批量启动";
+        var maa = requests.Any(request => request.Program.Kind == ProgramKind.Maa)
+            ? "请先核对 MAA 的原配置，避免它再次启动同一个模拟器。\n" : "";
+        if (await Confirm(label, $"依次启动以下 {requests.Length} 组，每组先开模拟器，再开软件。" +
+            "软件可能按自己的设置自动运行任务。\n" + maa + $"{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
+            label, scrollable: true))
+            await _live.LaunchBatchAsync(requests);
+    }
+
+    private static string DescribeLaunch(string label, LaunchEntry entry) =>
+        $"{label}　{entry.TargetPath}{(entry.RunAs ? "（请求管理员权限）" : "")}\n" +
+        $"工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
 
     [RelayCommand]
     private async Task RemoveScript(ScriptItem? script)
@@ -137,13 +170,14 @@ internal sealed partial class ShellViewModel : ObservableObject
         }
 
         const string label = "启动模拟器和软件";
-        var entry = program.Entry;
+        if (script.EffectiveEntry is not { } entry) return;
         var details = $"模拟器　{start.TargetPath}\n工作目录　{start.WorkingDirectory}\n参数　{start.Arguments}\n\n" +
             $"软件　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{entry.Arguments}";
         if (await Confirm(label, $"先请求启动选定的模拟器，等待 {emulator.WaitSeconds} 秒，然后启动「{script.Name}」。" +
             "等待时间由你设置。软件可能按原配置自动运行任务。\n" +
+            (program.Kind == ProgramKind.Maa ? "请核对 MAA 的原配置是否还会启动同一个模拟器。\n" : "") +
             $"{PermissionLabel}。Windows 可能请求目标的权限。\n\n{details}", label))
-            await _live.ExecuteAsync(script, ProgramAction.StartWithEmulator);
+            await _live.ExecuteAsync(script, ProgramAction.StartWithEmulator, entry);
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]
@@ -169,20 +203,19 @@ internal sealed partial class ShellViewModel : ObservableObject
 
     private async Task Launch(ScriptItem script, ProgramAction action)
     {
-        if (_live is null || script.Installation is not { } program) return;
+        if (_live is null || script.Installation is not { } program || script.EffectiveEntry is not { } entry) return;
         var label = action == ProgramAction.Restart ? "重启软件" : "启动软件";
         var notice = program.Kind == ProgramKind.Maa
             ? "MAA 可能按原配置自动运行游戏任务并启动模拟器。"
             : "软件启动后可能按原配置自动执行任务。";
-        var entry = program.Entry;
-        var details = $"启动目标　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{script.Arguments}";
+        var details = $"启动目标　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
         if (action == ProgramAction.Restart && script.Identity is { } old)
             details = $"将关闭　{old.ImagePath}（PID {old.Pid}）\n" + details;
         if (await Confirm(label, $"继续{label[..2]}「{script.Name}」？{notice}\n{PermissionLabel}。Windows 可能请求此目标的权限。\n\n{details}", label))
-            await _live.ExecuteAsync(script, action);
+            await _live.ExecuteAsync(script, action, entry);
     }
 
-    private static async Task<bool> Confirm(string title, string content, string affirmative)
+    private static async Task<bool> Confirm(string title, string content, string affirmative, bool scrollable = false)
     {
         var body = new System.Windows.Controls.TextBlock { Text = content, FontSize = 14 };
         body.SetResourceReference(System.Windows.FrameworkElement.StyleProperty, "Bam.BodyCopy");
@@ -190,7 +223,14 @@ internal sealed partial class ShellViewModel : ObservableObject
         {
             Owner = System.Windows.Application.Current.MainWindow,
             Title = title,
-            Content = body,
+            Content = scrollable ? new System.Windows.Controls.ScrollViewer
+            {
+                Content = body,
+                MaxHeight = 340,
+                MaxWidth = 480,
+                VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Disabled
+            } : body,
             UseLayoutRounding = true,
             PrimaryButtonText = affirmative,
             CloseButtonText = "取消"

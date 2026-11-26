@@ -96,15 +96,24 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
             var ready = Assert.Single((await monitor.SampleAsync(true, Token)).Programs);
             program = ready.Installation;
             Assert.Equal(ProcessState.Stopped, ready.Process);
+            var updatedWorking = root.CreateSubdirectory("updated working dir");
+            WriteLink(link, batch, updatedWorking.FullName, "\"updated words\"", worker);
+            Assert.Equal(CommandStatus.Denied,
+                (await monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, ready.Metadata.EffectiveEntry)).Status);
+            var updated = Assert.Single((await monitor.SampleAsync(true, Token)).Programs).Metadata.EffectiveEntry;
+            Assert.NotNull(updated);
+            Assert.Equal(updatedWorking.FullName, updated.WorkingDirectory, ignoreCase: true);
+            Assert.Equal("\"updated words\"", updated.Arguments);
 
             using var external = Process.Start(new ProcessStartInfo(other, "phase3") { WorkingDirectory = alternate.FullName })!;
             try
             {
-                Assert.Equal(CommandStatus.Accepted, (await monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token)).Status);
+                Assert.Equal(CommandStatus.Accepted, (await monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, updated)).Status);
                 var started = await Until(async () => Assert.Single((await monitor.SampleAsync(true, Token)).Programs),
                     item => item.Worker?.Window is { State: WindowState.Minimized, Responding: true } && item.WorkingSetMiB > 0);
                 var target = started.Worker!;
-                Assert.Equal("two words", await File.ReadAllTextAsync(Path.Combine(working.FullName, "fixture-evidence.txt"), Token));
+                Assert.False(File.Exists(Path.Combine(working.FullName, "fixture-evidence.txt")));
+                Assert.Equal("updated words", await File.ReadAllTextAsync(Path.Combine(updatedWorking.FullName, "fixture-evidence.txt"), Token));
                 Assert.Equal(files.ResolveImagePath(worker), target.Identity.ImagePath, ignoreCase: true);
                 Assert.NotEqual(external.Id, target.Identity.Pid);
                 Assert.NotNull(started.Uptime);

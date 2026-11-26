@@ -11,8 +11,12 @@ internal sealed partial class DashboardViewModel : ObservableObject
     private DateTimeOffset? _lastSample;
     private ProgramFrame? _lastFrame;
 
-    [ObservableProperty] private bool _showMemory;
-    [ObservableProperty] private int _chartRevision;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasChartSamples))] private bool _showMemory;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasChartSamples))] private int _chartRevision;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(DetectionTitle), nameof(DetectionDescription), nameof(ProcessCount))]
+    private bool _isDetecting;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(DetectionTitle), nameof(DetectionDescription), nameof(ProcessCount))]
+    private string? _detectionIssue;
     [ObservableProperty] private string _sampleLabel = "等待采样";
     [ObservableProperty] private string _cpu = "—";
     [ObservableProperty] private string _memory = "—";
@@ -21,6 +25,7 @@ internal sealed partial class DashboardViewModel : ObservableObject
     public DashboardViewModel(IDesktopData data)
     {
         _data = data;
+        _isDetecting = data is LiveDesktopData { Frame: null, DetectionIssue: null };
         Cards = data.Scripts.Select(script => new ScriptCardViewModel(script)).ToArray();
         RecentEvents = data.Logs.Take(3).ToArray();
         SampleLabel = data.HasResourceSource ? "等待采样" : "暂无采样";
@@ -34,10 +39,24 @@ internal sealed partial class DashboardViewModel : ObservableObject
     public IReadOnlyList<ScriptCardViewModel> Cards { get; private set; }
     public IReadOnlyList<LogEntry> RecentEvents { get; private set; }
     public bool HasScripts => Cards.Count > 0;
+    public bool CanManage => _data is LiveDesktopData;
+    public string DetectionTitle => DetectionIssue is not null ? "未能确认脚本列表" : IsDetecting ? "正在检测脚本" : "尚未添加脚本";
+    public string DetectionDescription => DetectionIssue ?? (IsDetecting
+        ? "正在读取本地记录并查找已知软件。" : CanManage ? "可自动检测已知软件，或手动添加。" : "当前没有脚本记录。");
+    public bool HasChartSamples => ShowMemory ? History.HasMemory : History.HasCpu;
     public bool HasEvents => RecentEvents.Count > 0;
-    public string ProcessCount => _data is LiveDesktopData live
-        ? $"{live.Frame?.ConfirmedWorkers ?? 0} / {Cards.Count}" : HasResourceSource
-            ? $"{_data.Scripts.Count(x => x.Process == ProcessState.Running)} / {Cards.Count}" : $"— / {Cards.Count}";
+    public string ProcessCount
+    {
+        get
+        {
+            if (_data is LiveDesktopData live)
+            {
+                if (IsDetecting || (DetectionIssue is not null && !HasScripts)) return "— / —";
+                return $"{live.Frame?.ConfirmedWorkers ?? 0} / {Cards.Count}";
+            }
+            return HasResourceSource ? $"{_data.Scripts.Count(x => x.Process == ProcessState.Running)} / {Cards.Count}" : $"— / {Cards.Count}";
+        }
+    }
     public string ChartScope => IsDemo ? "演示脚本主进程" : "已确认脚本主进程";
     public string ResourceHint => HasResourceSource ? ChartScope : "等待接入进程采样";
     public string ProcessHint => _lastFrame is { UnknownPrograms: > 0 } frame
@@ -63,6 +82,8 @@ internal sealed partial class DashboardViewModel : ObservableObject
 
     private void UpdateLive(LiveDesktopData live)
     {
+        DetectionIssue = live.DetectionIssue;
+        IsDetecting = live.Frame is null && DetectionIssue is null;
         if (live.Frame is not { } frame || ReferenceEquals(frame, _lastFrame)) return;
         _lastFrame = frame;
         var cards = Cards.ToDictionary(card => card.Script.Installation!.Id);

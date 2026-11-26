@@ -38,8 +38,16 @@
 
                 <StackPanel KeyboardNavigation.TabNavigation="Local">
                     <DockPanel Margin="{StaticResource Bam.After.Small}">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Bam.SectionLink}" Content="管理脚本"
-                                Command="{Binding DataContext.OpenScriptsCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Style="{StaticResource Bam.SectionLink}" Content="批量启动" Margin="{StaticResource Bam.Gap.Right}"
+                                    Visibility="{Binding CanManage, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                                    AutomationProperties.AutomationId="LaunchPaired"
+                                    ToolTip="依次启动空闲且已配置模拟器入口的脚本。"
+                                    ToolTipService.ShowOnDisabled="True"
+                                    Command="{Binding DataContext.LaunchPairedCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                            <Button Style="{StaticResource Bam.SectionLink}" Content="管理脚本"
+                                    Command="{Binding DataContext.OpenScriptsCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                        </StackPanel>
                         <TextBlock Text="已管理脚本" Style="{StaticResource Bam.SectionTitle}" VerticalAlignment="Center"
                                    AutomationProperties.HeadingLevel="Level2"/>
                     </DockPanel>
@@ -73,7 +81,30 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <local:EmptyState Title="尚未添加脚本" Description="在脚本管理中自动检测已知软件，或手动添加。" Symbol="Apps24"/>
+                        <StackPanel x:Name="ScriptStatus">
+                            <local:EmptyState Title="{Binding DetectionTitle}" Description="{Binding DetectionDescription}" Symbol="Apps24"
+                                              AutomationProperties.LiveSetting="Polite"/>
+                            <WrapPanel HorizontalAlignment="Center" Margin="{StaticResource Bam.Before.Small}">
+                                <WrapPanel.Style>
+                                    <Style TargetType="WrapPanel">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding CanManage}" Value="True"/>
+                                                    <Condition Binding="{Binding IsDetecting}" Value="False"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </WrapPanel.Style>
+                                <Button Content="自动检测" Style="{StaticResource Bam.QuietButton}" Margin="{StaticResource Bam.Gap.Right}"
+                                        Command="{Binding DataContext.DiscoverCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                                <Button Content="手动添加" Style="{StaticResource Bam.QuietButton}"
+                                        Command="{Binding DataContext.AddScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                            </WrapPanel>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
@@ -102,15 +133,24 @@
                     </DockPanel>
                     <Grid Height="80">
                         <local:ResourceChart x:Name="ResourcePlot" History="{Binding History}" Revision="{Binding ChartRevision}"
-                                                 ShowMemory="{Binding ShowMemory}" Focusable="{Binding HasResourceSource}"
+                                                 ShowMemory="{Binding ShowMemory}" Focusable="{Binding HasChartSamples}"
                                                  FocusVisualStyle="{StaticResource Bam.FocusVisual}"
                                                  AxisBrush="{DynamicResource Bam.TextMuted}" GridBrush="{DynamicResource Bam.ChartGrid}"
                                                  CpuBrush="{DynamicResource Bam.PrimaryLight}" MemoryBrush="{DynamicResource Bam.Memory}"
                                                  AutomationProperties.Name="最近 120 秒资源曲线" AutomationProperties.HelpText="{Binding ChartDetail}"
                                                  KeyboardNavigation.TabNavigation="Local"/>
-                        <Border Background="{DynamicResource Bam.Surface}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Padding="{StaticResource Bam.PanelPadding}" CornerRadius="{StaticResource Bam.Corner.Control}">
-                                        <TextBlock Text="暂无资源采样" Style="{StaticResource Bam.Caption}"/>
+                        <Border x:Name="ChartEmptyState" Background="{DynamicResource Bam.Surface}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Padding="{StaticResource Bam.PanelPadding}" CornerRadius="{StaticResource Bam.Corner.Control}" IsHitTestVisible="False">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasChartSamples}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="暂无资源采样" Style="{StaticResource Bam.Caption}"/>
                         </Border>
                     </Grid>
                     <DockPanel LastChildFill="False">

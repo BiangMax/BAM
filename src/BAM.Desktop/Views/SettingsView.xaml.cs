@@ -14,6 +14,6 @@ public partial class SettingsView : UserControl
         var device = MaaDevice.Password;
         MaaUser.Clear();
         MaaDevice.Clear();
-        await loopback.StartAsync(MaaPort.Text, user, device);
+        await loopback.StartAsync(user, device);
     }
 }

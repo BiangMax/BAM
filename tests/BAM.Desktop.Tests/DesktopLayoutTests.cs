@@ -1,14 +1,17 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using BAM.Adapters;
 using BAM.Core;
 using BAM.Desktop.Controls;
 using BAM.Desktop.Data;
 using BAM.Desktop.Settings;
 using BAM.Desktop.ViewModels;
 using BAM.Desktop.Views;
+using BAM.Infrastructure;
 using Xunit;
 using SymbolRegular = Wpf.Ui.Controls.SymbolRegular;
 
@@ -40,6 +43,10 @@ public sealed class DesktopLayoutTests
                     AssertStatusSpacing(340);
                     VerifyPageLayout();
                     VerifyDashboardFirstScreen();
+                    VerifyChartEmptyState();
+                    VerifyLoopbackAddresses();
+                    VerifyProgramEditorInheritance();
+                    VerifyPairedCountdownButton();
                     app.Resources.MergedDictionaries.Remove(palette);
                 }
                 app.Shutdown();
@@ -91,6 +98,31 @@ public sealed class DesktopLayoutTests
         var status = Assert.Single(FindAll<ToneBadge>(card), badge => badge.Text == "已启动");
         Assert.True(status.TranslatePoint(new Point(), card).Y -
             caption.TranslatePoint(new Point(0, caption.ActualHeight), card).Y >= 4);
+    }
+
+    private static void VerifyPairedCountdownButton()
+    {
+        var entry = new LaunchEntry("fixture.exe", "fixture.exe", "fixture", "");
+        var program = new ProgramInstallation(Guid.NewGuid(), "MaaEnd", ProgramKind.MaaEnd, entry, "fixture", [entry.TargetPath])
+        { Emulator = new(entry, 20) };
+        var item = new ScriptItem(program.Name, "游戏", "1.0", SymbolRegular.Apps24, Tone.Accent,
+            ProcessState.Stopped, GameTaskState.Unsupported, "", "", "", "")
+        { Installation = program, CanStartWithEmulator = true };
+        var model = new ScriptCardViewModel(item);
+        var card = new ScriptCard { DataContext = model };
+        Layout(card, 260, 380);
+        var button = Assert.Single(FindAll<Button>(card), control => System.Windows.Automation.AutomationProperties.GetAutomationId(control) == "ScriptEmulatorAction");
+        Assert.True(button.IsEnabled);
+        model.Script = item with { Process = ProcessState.Starting, CanStartWithEmulator = false,
+            PairedStartup = new(PairedStartupPhase.Waiting, 20) };
+        Assert.Equal("20 秒后启动脚本", button.Content);
+        Assert.False(button.IsEnabled);
+        model.Script = model.Script with { PairedStartup = new(PairedStartupPhase.Waiting, 1) };
+        Assert.Equal("1 秒后启动脚本", button.Content);
+        model.Script = model.Script with { PairedStartup = new(PairedStartupPhase.StartingScript) };
+        Assert.Equal("正在启动脚本…", button.Content);
+        model.Script = model.Script with { PairedStartup = null, Process = ProcessState.Running };
+        Assert.Equal("启动模拟器和软件", button.Content);
     }
 
     private static void VerifyPageLayout()
@@ -163,11 +195,106 @@ public sealed class DesktopLayoutTests
     private sealed class LayoutData : IDesktopData
     {
         public bool IsDemo => true;
-        public bool HasResourceSource => false;
+        public bool HasResourceSource { get; init; }
         public IReadOnlyList<ScriptItem> Scripts { get; init; } = [];
         public IReadOnlyList<LogEntry> Logs { get; init; } = [];
         public string? GetLogSourceNotice(string source) => null;
-        public ResourceFrame? ReadResources(DateTimeOffset time) => null;
+        public ResourceFrame? ReadResources(DateTimeOffset time) => time == DateTimeOffset.UnixEpoch.AddSeconds(1)
+            ? new(time, [], 0, null) : time == DateTimeOffset.UnixEpoch.AddSeconds(2) ? new(time, [], null, 64) : null;
+    }
+
+    private static void VerifyChartEmptyState()
+    {
+        var model = new DashboardViewModel(new LayoutData { HasResourceSource = true });
+        var view = new DashboardView { DataContext = model };
+        var empty = Assert.IsType<Border>(view.FindName("ChartEmptyState"));
+        var chart = Assert.IsType<ResourceChart>(view.FindName("ResourcePlot"));
+        Layout(view, 900, 650);
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+        Assert.False(empty.IsHitTestVisible);
+        Assert.False(chart.Focusable);
+
+        var start = DateTimeOffset.UnixEpoch;
+        model.Refresh(start.AddSeconds(1));
+        Assert.Equal(Visibility.Collapsed, empty.Visibility);
+        Assert.True(chart.Focusable);
+        Assert.Equal($"{0d:0.0}%", model.Cpu);
+        model.ShowMemory = true;
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+        model.Refresh(start.AddSeconds(2));
+        Assert.Equal(Visibility.Collapsed, empty.Visibility);
+        model.Refresh(start.AddSeconds(122));
+        Assert.Equal(Visibility.Collapsed, empty.Visibility);
+        model.ShowMemory = false;
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+        model.ShowMemory = true;
+        model.Refresh(start.AddSeconds(123));
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+    }
+
+    private static void VerifyLoopbackAddresses()
+    {
+        var host = new LayoutLoopbackHost();
+        var model = new MaaLoopbackViewModel(host, TimeProvider.System, CancellationToken.None);
+        var view = new SettingsView { DataContext = new SettingsViewModel(new(true), new(), null, true, false, model) };
+        Layout(view, 730, 700);
+        var addresses = FindAll<TextBox>(view).Where(box => box.IsReadOnly).ToArray();
+        Assert.Collection(addresses,
+            box => Assert.Equal("http://127.0.0.1:18373/getTask", box.Text),
+            box => Assert.Equal("http://127.0.0.1:18373/reportStatus", box.Text));
+        model.PortText = "99999";
+        Assert.All(addresses, box => Assert.Empty(box.Text));
+        model.PortText = "19373";
+        Assert.Equal("http://127.0.0.1:19373/reportStatus", addresses[1].Text);
+        Assert.True(model.StartAsync("fixture-user", "fixture-device").IsCompletedSuccessfully);
+        Assert.Equal(19373, host.RequestedPort);
+        Assert.Equal("http://127.0.0.1:19374/getTask", addresses[0].Text);
+        Assert.True(model.ShutdownAsync().IsCompletedSuccessfully);
+        Assert.Equal("http://127.0.0.1:19373/getTask", addresses[0].Text);
+    }
+
+    private static void VerifyProgramEditorInheritance()
+    {
+        var folder = Path.GetTempPath();
+        var target = Path.Combine(folder, "fixture.exe");
+        var entry = new LaunchEntry(Path.Combine(folder, "fixture.lnk"), target, folder, "--saved");
+        var program = new ProgramInstallation(Guid.NewGuid(), "Fixture", ProgramKind.Generic, entry, folder, [target])
+        {
+            InheritShortcutArguments = true
+        };
+        var catalog = new InstallationCatalog(new WindowsProgramFiles());
+        using var platform = new WindowsProgramPlatform();
+        using var monitor = new ProgramMonitor(catalog, platform, new LocalProgramStore(folder),
+            new LocalProgramEventStore(folder), TimeProvider.System);
+        using var live = new LiveDesktopData(monitor, catalog);
+        var editor = new ProgramEditor(live, program, entry with { Arguments = "--current" });
+        try
+        {
+            var inherit = Assert.IsType<CheckBox>(editor.FindName("InheritArguments"));
+            var arguments = Assert.IsType<TextBox>(editor.FindName("LaunchArguments"));
+            var directory = Assert.IsType<TextBox>(editor.FindName("WorkDirectory"));
+            Assert.Equal(Visibility.Visible, inherit.Visibility);
+            Assert.True(inherit.IsChecked);
+            Assert.Equal(Visibility.Collapsed, arguments.Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<DockPanel>(directory.Parent).Visibility);
+            inherit.IsChecked = false;
+            Assert.Equal(Visibility.Visible, arguments.Visibility);
+            Assert.Equal("--current", arguments.Text);
+        }
+        finally { editor.Close(); }
+    }
+
+    private sealed class LayoutLoopbackHost : IMaaLoopbackHost
+    {
+        public int RequestedPort { get; private set; }
+
+        public Task<int> StartAsync(int port, IMaaHeartbeatSession session, CancellationToken cancellation)
+        {
+            RequestedPort = port;
+            return Task.FromResult(port + 1);
+        }
+
+        public Task StopAsync(CancellationToken cancellation) => Task.CompletedTask;
     }
 
     private static void Layout(FrameworkElement element, int width, int height)

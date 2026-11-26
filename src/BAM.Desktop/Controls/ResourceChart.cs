@@ -64,7 +64,7 @@ internal sealed class ResourceChart : FrameworkElement
             drawing.DrawText(label, new Point(Math.Min(x - label.Width / 2, RenderSize.Width - label.Width), plot.Bottom + 7));
         }
 
-        if (History is not { Count: > 0 } history) return;
+        if (History is not { Count: > 0 } history || !(ShowMemory ? history.HasMemory : history.HasCpu)) return;
         var segment = new List<Point>(history.Count);
         var fill = line.Brush.CloneCurrentValue();
         fill.Opacity = SystemParameters.HighContrast ? 0 : 0.11;
@@ -151,7 +151,8 @@ internal sealed class ResourceChart : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs args)
     {
         base.OnMouseMove(args);
-        if (History is not { Count: > 0 } history || Plot.Width == 0 || !Plot.Contains(args.GetPosition(this)))
+        if (History is not { Count: > 0 } history || !(ShowMemory ? history.HasMemory : history.HasCpu)
+            || Plot.Width == 0 || !Plot.Contains(args.GetPosition(this)))
         {
             SetCursor(null);
             return;
@@ -194,10 +195,13 @@ internal sealed class ResourceChart : FrameworkElement
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs args)
     {
         base.OnPropertyChanged(args);
-        if (args.Property == ShowMemoryProperty) UpdateInspection();
-        if (args.Property == RevisionProperty && _cursor is { } cursor && History is { Count: > 0 } history
-            && cursor.Position < history[0].Position)
-            SetCursor(null);
+        if (args.Property == HistoryProperty || args.Property == RevisionProperty || args.Property == ShowMemoryProperty)
+        {
+            if (_cursor is { } cursor && (History is not { Count: > 0 } history
+                || !(ShowMemory ? history.HasMemory : history.HasCpu) || cursor.Position < history[0].Position))
+                SetCursor(null);
+            else if (args.Property == ShowMemoryProperty) UpdateInspection();
+        }
     }
 
     private void SetCursor(ResourcePoint? point)
