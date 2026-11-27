@@ -7,37 +7,72 @@ namespace BAM.Infrastructure;
 
 public sealed partial class WindowsProgramPlatform
 {
-    public string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation)
-    {
-        cancellation.ThrowIfCancellationRequested();
-        using var handle = OpenProcess(Query | Synchronize, false, identity.Pid);
-        if (handle.IsInvalid || !IsLive(handle) ||
-            !identity.Equals(ReadIdentity(handle, identity.Pid, new StringBuilder(1024), out _))) return null;
+    public string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation) =>
+        ReadEmulatorArgumentsBatch([identity], cancellation).GetValueOrDefault(identity);
 
+    public IReadOnlyDictionary<ProcessIdentity, string[]?> ReadEmulatorArgumentsBatch(IReadOnlyList<ProcessIdentity> identities,
+        CancellationToken cancellation)
+    {
+        var result = new Dictionary<ProcessIdentity, string[]?>();
         object? locator = null;
         object? connection = null;
-        object? process = null;
         try
         {
-            // WMI provides the OS process property without opening the target for memory access.
-            if (Type.GetTypeFromProgID("WbemScripting.SWbemLocator") is not { } type) return null;
-            locator = Activator.CreateInstance(type);
-            connection = ((dynamic)locator!).ConnectServer(".", @"root\cimv2", "", "", "", "", 128);
-            cancellation.ThrowIfCancellationRequested();
-            process = ((dynamic)connection!).Get($"Win32_Process.Handle=\"{identity.Pid}\"", 0);
-            string? commandLine = ((dynamic)process!).CommandLine;
-            cancellation.ThrowIfCancellationRequested();
-            return IsLive(handle) && commandLine is { Length: > 0 and <= 32767 } ? SplitCommandLine(commandLine) : null;
-        }
-        catch (Exception error) when (error is COMException or UnauthorizedAccessException or RuntimeBinderException)
-        {
-            return null;
+            var buffer = new StringBuilder(1024);
+            foreach (var identity in identities)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                using var handle = OpenProcess(Query | Synchronize, false, identity.Pid);
+                if (handle.IsInvalid || !IsLive(handle) || !identity.Equals(ReadIdentity(handle, identity.Pid, buffer, out _)))
+                    continue;
+
+                object? process = null;
+                try
+                {
+                    // Reuse the read-only WMI session across the candidates in this sample.
+                    if (connection is null)
+                    {
+                        if (Type.GetTypeFromProgID("WbemScripting.SWbemLocator") is not { } type) return result;
+                        locator ??= Activator.CreateInstance(type);
+                        connection = ((dynamic)locator!).ConnectServer(".", @"root\cimv2", "", "", "", "", 128);
+                    }
+                    cancellation.ThrowIfCancellationRequested();
+                    process = ((dynamic)connection!).Get($"Win32_Process.Handle=\"{identity.Pid}\"", 0);
+                    var commandLine = ReadCommandLineProperty(process!);
+                    cancellation.ThrowIfCancellationRequested();
+                    if (IsLive(handle) && commandLine is { Length: > 0 and <= 32767 })
+                        result[identity] = SplitCommandLine(commandLine);
+                }
+                catch (Exception error) when (error is COMException or UnauthorizedAccessException or RuntimeBinderException)
+                {
+                    // Keep this candidate unknown and continue checking the other verified processes.
+                }
+                finally { if (process is not null) Marshal.FinalReleaseComObject(process); }
+            }
+            return result;
         }
         finally
         {
-            if (process is not null) Marshal.FinalReleaseComObject(process);
             if (connection is not null) Marshal.FinalReleaseComObject(connection);
             if (locator is not null) Marshal.FinalReleaseComObject(locator);
+        }
+    }
+
+    private static string? ReadCommandLineProperty(object process)
+    {
+        object? properties = null;
+        object? property = null;
+        try
+        {
+            // The direct dynamic CommandLine member can fail on subsequent Win32_Process objects.
+            properties = ((dynamic)process).Properties_;
+            property = ((dynamic)properties!).Item("CommandLine", 0);
+            return ((dynamic)property!).Value as string;
+        }
+        finally
+        {
+            if (property is not null) Marshal.FinalReleaseComObject(property);
+            if (properties is not null) Marshal.FinalReleaseComObject(properties);
         }
     }
 

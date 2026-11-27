@@ -733,6 +733,51 @@ public sealed class ProgramMonitorTests
         }
     }
 
+    [Fact]
+    public async Task ThreeCardsReportIndependentEmulatorMetricsIncludingMaa()
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch();
+        var sharedImage = Path.Combine(Root, "shared-vm.exe");
+        var separateImage = Path.Combine(Root, "independent-vm.exe");
+        rig.Store.Programs = [programs[0] with { EmulatorMonitor = new(sharedImage, 0) },
+            programs[1] with { Emulator = null, EmulatorMonitor = new(separateImage) },
+            programs[2] with { EmulatorMonitor = new(sharedImage, 1) }];
+        var first = MetricWorker(sharedImage, 40, 192);
+        var second = MetricWorker(separateImage, 41, 256);
+        var third = MetricWorker(sharedImage, 42, 384);
+        rig.Platform.EmulatorWorkers = [first, second, third];
+        rig.Platform.EmulatorArguments[first.Identity] = [sharedImage, "-v", "0"];
+        rig.Platform.EmulatorArguments[third.Identity] = [sharedImage, "--index=1"];
+        await rig.Monitor.InitializeAsync(Token);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(3));
+        while ((await rig.Monitor.SampleAsync(true, deadline.Token)).Programs[2].EmulatorUsage!.WorkingSetMiB is null)
+            await Task.Delay(10, deadline.Token);
+
+        rig.Clock.Tick();
+        rig.Platform.EmulatorWorkers = [first with { CpuTime = TimeSpan.FromSeconds(.1) },
+            second with { CpuTime = TimeSpan.FromSeconds(.2) }, third with { CpuTime = TimeSpan.FromSeconds(.3) }];
+        var measured = (await rig.Monitor.SampleAsync(true, Token)).Programs.Select(item => item.EmulatorUsage!).ToArray();
+        Assert.Collection(measured,
+            usage => Verify(usage, 192, 10), usage => Verify(usage, 256, 20), usage => Verify(usage, 384, 30));
+
+        rig.Platform.EmulatorWorkers = [first, second];
+        var afterExit = (await rig.Monitor.SampleAsync(true, Token)).Programs.Select(item => item.EmulatorUsage!).ToArray();
+        Assert.Equal(192, afterExit[0].WorkingSetMiB);
+        Assert.Equal(256, afterExit[1].WorkingSetMiB);
+        Assert.Null(afterExit[2].WorkingSetMiB);
+        Assert.Contains("没有与配置编号匹配", afterExit[2].Hint);
+        Assert.Empty(rig.Platform.Submitted);
+        Assert.Empty(rig.Platform.Controls);
+
+        static void Verify(EmulatorResourceUsage usage, double memory, double cpu)
+        {
+            Assert.Equal(memory, usage.WorkingSetMiB);
+            Assert.Equal(cpu / Environment.ProcessorCount, usage.Cpu);
+        }
+    }
+
     private static WorkerSnapshot MetricWorker(string path, int pid, long memory) =>
         new(new(path, pid, DateTimeOffset.UnixEpoch), TimeSpan.Zero, memory * 1048576, null, null, false);
 

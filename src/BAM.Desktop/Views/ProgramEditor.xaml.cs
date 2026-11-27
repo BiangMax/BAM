@@ -7,6 +7,8 @@ using Microsoft.Win32;
 
 namespace BAM.Desktop.Views;
 
+internal enum ProgramEditorSection { General, EmulatorStartup, EmulatorMonitoring }
+
 public partial class ProgramEditor : Window
 {
     private readonly LiveDesktopData _data;
@@ -16,7 +18,7 @@ public partial class ProgramEditor : Window
     private bool _working;
 
     internal ProgramEditor(LiveDesktopData data, ProgramInstallation? program, LaunchEntry? effectiveEntry,
-        bool focusEmulator = false)
+        ProgramEditorSection section = ProgramEditorSection.General)
     {
         _data = data;
         _installationId = program?.Id;
@@ -28,10 +30,16 @@ public partial class ProgramEditor : Window
         MonitorInstance.Text = program?.EmulatorMonitor?.InstanceNumber?.ToString(CultureInfo.InvariantCulture) ?? "";
         UpdateMonitorFields();
         if (program is not null) ShowFields(program, effectiveEntry);
-        if (focusEmulator) Loaded += (_, _) =>
+        var focus = section switch
         {
-            ChooseEmulatorButton.BringIntoView();
-            ChooseEmulatorButton.Focus();
+            ProgramEditorSection.EmulatorStartup => ChooseEmulatorButton,
+            ProgramEditorSection.EmulatorMonitoring => ChooseMonitorImageButton,
+            _ => null
+        };
+        if (focus is not null) Loaded += (_, _) =>
+        {
+            focus.BringIntoView();
+            focus.Focus();
         };
     }
 

@@ -119,10 +119,14 @@
                     </Grid>
                 </Grid>
             </Border>
-            <TextBlock Text="{Binding Script.EmulatorUsageLabel}" Style="{StaticResource Bam.Caption}"
-                       Margin="{StaticResource Bam.Before.Small}" TextTrimming="CharacterEllipsis"
-                       Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
-                       ToolTip="{Binding Script.EmulatorUsage.Hint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsage.Hint}"/>
+            <Button Style="{StaticResource Bam.QuietButton}" Margin="{StaticResource Bam.Before.Small}" MinHeight="20" Padding="4,0"
+                    Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                    AutomationProperties.AutomationId="ScriptEmulatorMonitoring" AutomationProperties.Name="{Binding Script.EmulatorUsageLabel}"
+                    ToolTip="{Binding Script.EmulatorUsageHint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsageHint}"
+                    Command="{Binding DataContext.EditEmulatorMonitoringCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                    CommandParameter="{Binding Script}">
+                <TextBlock Text="{Binding Script.EmulatorUsageLabel}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+            </Button>
             <Button Content="{Binding Script.EmulatorAction}" IsEnabled="{Binding Script.CanUseEmulatorAction}"
                     AutomationProperties.AutomationId="ScriptEmulatorAction"
                     Visibility="{Binding Script.ShowEmulatorAction, Converter={StaticResource Bam.VisibleWhenTrue}}"

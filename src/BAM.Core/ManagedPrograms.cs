@@ -125,6 +125,8 @@ public interface IProgramPlatform
     ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
         new(false, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
     string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation) => null;
+    IReadOnlyDictionary<ProcessIdentity, string[]?> ReadEmulatorArgumentsBatch(IReadOnlyList<ProcessIdentity> identities,
+        CancellationToken cancellation) => identities.ToDictionary(identity => identity, identity => ReadEmulatorArguments(identity, cancellation));
     // Accepted means the OS accepted the request. Unknown means it may have been submitted.
     // Denied, Unsupported and Failed indicate a definite rejection before dispatch.
     CommandResult Launch(LaunchEntry entry);

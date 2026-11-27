@@ -22,24 +22,41 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
         {
             await Compile(executable);
             using var owned = Process.Start(new ProcessStartInfo(executable, "phase3 --instance=9") { WorkingDirectory = root.FullName })!;
+            Process? sibling = null;
             try
             {
+                sibling = Process.Start(new ProcessStartInfo(executable, "phase3 --index=4") { WorkingDirectory = root.FullName })!;
                 using var platform = new WindowsProgramPlatform();
                 var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { new WindowsProgramFiles().ResolveImagePath(executable) };
                 var workers = await Until(() => Task.FromResult(platform.ScanEmulators(paths, Token)),
-                    scan => scan.Complete && scan.Workers.Any(worker => worker.Identity.Pid == owned.Id));
-                var worker = Assert.Single(workers.Workers);
-                Assert.NotNull(worker.WorkingSet);
-                Assert.NotNull(worker.CpuTime);
-                Assert.False(worker.CanTerminate);
-                Assert.Null(worker.Window);
-                Assert.Contains("--instance=9", platform.ReadEmulatorArguments(worker.Identity, Token)!);
+                    scan => scan.Complete && scan.Workers.Count == 2);
+                var worker = Assert.Single(workers.Workers, item => item.Identity.Pid == owned.Id);
+                var other = Assert.Single(workers.Workers, item => item.Identity.Pid == sibling.Id);
+                Assert.All(workers.Workers, item =>
+                {
+                    Assert.NotNull(item.WorkingSet);
+                    Assert.NotNull(item.CpuTime);
+                    Assert.False(item.CanTerminate);
+                    Assert.Null(item.Window);
+                });
                 var stale = new ProcessIdentity(worker.Identity.ImagePath, owned.Id, worker.Identity.CreatedAtUtc.AddTicks(-1));
+                var arguments = platform.ReadEmulatorArgumentsBatch([worker.Identity, other.Identity, stale], Token);
+                Assert.Contains("--instance=9", arguments[worker.Identity]!);
+                Assert.Contains("--index=4", arguments[other.Identity]!);
+                Assert.False(arguments.ContainsKey(stale));
                 Assert.Null(platform.ReadEmulatorArguments(stale, Token));
-                output.WriteLine("Verified read-only CPU, working set, instance arguments and stale identity rejection.");
+                output.WriteLine("Verified read-only CPU, working sets, two instance arguments and stale identity rejection.");
             }
             finally
             {
+                if (sibling is not null)
+                {
+                    using (sibling)
+                    {
+                        if (!sibling.HasExited) sibling.Kill();
+                        await sibling.WaitForExitAsync(CancellationToken.None);
+                    }
+                }
                 if (!owned.HasExited) owned.Kill();
                 await owned.WaitForExitAsync(CancellationToken.None);
             }

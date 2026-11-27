@@ -204,6 +204,13 @@ public sealed class DesktopLayoutTests
         Assert.Equal(0, scroll.ScrollableHeight);
         var cards = FindAll<ScriptCard>(dashboard).ToArray();
         Assert.Equal(3, cards.Length);
+        foreach (var card in cards)
+        {
+            var monitoring = Assert.Single(FindAll<Button>(card), button =>
+                AutomationProperties.GetAutomationId(button) == "ScriptEmulatorMonitoring");
+            Assert.Equal(Visibility.Visible, monitoring.Visibility);
+            Assert.Contains("工作集 2000 MiB", AutomationProperties.GetName(monitoring));
+        }
         var maa = Assert.IsType<ScriptCardViewModel>(cards[1].DataContext).Script;
         Assert.False(maa.ShowEmulatorAction);
         Assert.True((maa with { CanStart = true, EffectiveEntry = entry }).CanStartInBatch);

@@ -109,12 +109,18 @@ internal sealed partial class ShellViewModel : ObservableObject
     [RelayCommand] private void AddScript() => EditScript(null);
 
     [RelayCommand]
-    private void EditScript(ScriptItem? script) => ShowEditor(script, focusEmulator: false);
+    private void EditScript(ScriptItem? script) => ShowEditor(script);
 
-    private void ShowEditor(ScriptItem? script, bool focusEmulator)
+    [RelayCommand]
+    private void EditEmulatorMonitoring(ScriptItem? script)
+    {
+        if (script?.Installation is not null) ShowEditor(script, ProgramEditorSection.EmulatorMonitoring);
+    }
+
+    private void ShowEditor(ScriptItem? script, ProgramEditorSection section = ProgramEditorSection.General)
     {
         if (_live is null) return;
-        var editor = new ProgramEditor(_live, script?.Installation, script?.EffectiveEntry, focusEmulator) { Owner = System.Windows.Application.Current.MainWindow };
+        var editor = new ProgramEditor(_live, script?.Installation, script?.EffectiveEntry, section) { Owner = System.Windows.Application.Current.MainWindow };
         editor.ShowDialog();
     }
 
@@ -175,7 +181,7 @@ internal sealed partial class ShellViewModel : ObservableObject
         if (_live is null || script is not { CanUseEmulatorAction: true, Installation: { } program }) return;
         if (program.Emulator?.Entry is null)
         {
-            ShowEditor(script, focusEmulator: true);
+            ShowEditor(script, ProgramEditorSection.EmulatorStartup);
             return;
         }
 

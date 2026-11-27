@@ -92,10 +92,12 @@ internal sealed record ScriptItem(
         (program.Kind == ProgramKind.Maa ? CanStart : program.SupportsEmulatorStartup && CanStartWithEmulator && program.Emulator?.Entry is not null);
     public EmulatorResourceUsage? EmulatorUsage { get; init; }
     public PairedStartupProgress? PairedStartup { get; init; }
-    public bool ShowEmulatorUsage => EmulatorUsage is not null;
-    public string? EmulatorUsageLabel => EmulatorUsage is { } usage
-        ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 内存 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
-        : null;
+    public bool ShowEmulatorUsage => Installation is { Kind: ProgramKind.Maa or ProgramKind.MaaEnd or ProgramKind.BBchannel }
+        || EmulatorUsage is not null;
+    public string EmulatorUsageLabel => EmulatorUsage is { } usage
+        ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 工作集 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
+        : "设置模拟器监控";
+    public string EmulatorUsageHint => EmulatorUsage?.Hint ?? "选择此脚本对应的模拟器实例进程。";
     public bool CanUseEmulatorAction => PairedStartup is null && ShowEmulatorAction &&
         (Installation?.Emulator?.Entry is null || CanStartWithEmulator);
     public string EmulatorAction => PairedStartup?.Phase switch

@@ -71,8 +71,12 @@ internal sealed class EmulatorResources(IProgramPlatform platform, TimeProvider 
                 continue;
             }
             var matched = group.Select(binding => Match(binding, byPath[binding.Path], candidates[binding.Path], scan.UnreadableNames)).ToArray();
-            if (matched.Any(worker => worker is null)) continue;
-            var workers = matched.OfType<WorkerSnapshot>().ToArray();
+            if (matched.FirstOrDefault(match => match.Issue is not null).Issue is { } issue)
+            {
+                result[group.Key] = new(null, null, issue);
+                continue;
+            }
+            var workers = matched.Select(match => match.Worker!).ToArray();
             double? usage = workers.All(worker => cpu.ContainsKey(worker.Identity)) ? workers.Sum(worker => cpu[worker.Identity]) : null;
             double? memory = workers.All(worker => worker.WorkingSet is not null) ? workers.Sum(worker => worker.WorkingSet!.Value) / 1048576d : null;
             result[group.Key] = new(usage, memory, $"已确认 {workers.Length} 个所选模拟器进程。工作集为这些进程的合计。");
@@ -80,17 +84,27 @@ internal sealed class EmulatorResources(IProgramPlatform platform, TimeProvider 
         return result;
     }
 
-    private WorkerSnapshot? Match(Binding binding, IEnumerable<Binding> owners, IEnumerable<WorkerSnapshot> candidates,
+    private (WorkerSnapshot? Worker, string? Issue) Match(Binding binding, IEnumerable<Binding> owners, IEnumerable<WorkerSnapshot> candidates,
         IReadOnlySet<string> unreadable)
     {
-        if (unreadable.Contains(Path.GetFileName(binding.Path)) || owners.Count(owner => owner.Instance == binding.Instance) != 1)
-            return null;
+        if (unreadable.Contains(Path.GetFileName(binding.Path)))
+            return (null, "存在无法读取的同名进程，暂无法确认模拟器占用。");
+        if (owners.Count(owner => owner.Instance == binding.Instance) != 1)
+            return (null, "多个脚本选择了相同的模拟器进程路径和实例编号。");
         var current = candidates.ToArray();
+        if (current.Length == 0) return (null, "未找到配置中的模拟器进程，请核对所选 EXE。");
         if (binding.Instance is null)
-            return owners.Count() == 1 && current.Length == 1 ? current[0] : null;
-        if (current.Any(worker => !_instances.TryGetValue(worker.Identity, out var index) || index is null)) return null;
+            return owners.Count() == 1 && current.Length == 1 ? (current[0], null) :
+                (null, "所选 EXE 对应多个进程或脚本，请填写对应实例编号。");
+        if (current.Any(worker => !_instances.TryGetValue(worker.Identity, out var index) || index is null))
+            return (null, "无法读取或识别同路径候选进程的实例编号。");
         var matching = current.Where(worker => _instances[worker.Identity] == binding.Instance).Take(2).ToArray();
-        return matching.Length == 1 ? matching[0] : null;
+        return matching.Length switch
+        {
+            0 => (null, "所选进程中没有与配置编号匹配的模拟器实例。"),
+            1 => (matching[0], null),
+            _ => (null, "同一路径下有多个进程报告相同的模拟器实例编号。")
+        };
     }
 
     private void UpdateInstanceNumbers(HashSet<ProcessIdentity> current, long stamp, CancellationToken cancellation)
@@ -112,11 +126,11 @@ internal sealed class EmulatorResources(IProgramPlatform platform, TimeProvider 
             .Take(24).ToArray();
         if (pending.Length == 0) return;
         _lookupAt = stamp;
-        _lookup = Task.Run(() => pending.ToDictionary(identity => identity, identity =>
+        _lookup = Task.Run(() =>
         {
-            cancellation.ThrowIfCancellationRequested();
-            return ParseInstance(platform.ReadEmulatorArguments(identity, cancellation));
-        }), cancellation);
+            var arguments = platform.ReadEmulatorArgumentsBatch(pending, cancellation);
+            return pending.ToDictionary(identity => identity, identity => ParseInstance(arguments.GetValueOrDefault(identity)));
+        }, cancellation);
     }
 
     private static int? ParseInstance(string[]? arguments)
