@@ -164,11 +164,20 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     {
         SetNotice($"正在依次处理 {requests.Count} 组启动请求…");
         var results = await Task.Run(() => monitor.LaunchBatchAsync(requests, token), token);
+        if (token.IsCancellationRequested) return;
         var accepted = results.Count(item => item.Result.Status == CommandStatus.Accepted);
         var summary = $"批量启动 · 已提交 {accepted}/{results.Count} 组";
-        if (accepted < results.Count) summary += "，悬停查看各组结果";
-        var details = string.Join(Environment.NewLine, results.Select(item =>
-            $"{item.Program.Name} · {item.Result.Reason ?? "结果未知。"}"));
+        var details = string.Join("\n\n", results.Select(item =>
+        {
+            var status = item.Result.Status switch
+            {
+                CommandStatus.Accepted => "已提交",
+                CommandStatus.Unknown or CommandStatus.TimedOut => "待确认",
+                _ => "未完成"
+            };
+            return $"{item.Program.Name} · {status}\n{item.Result.Reason ?? "未提供进一步说明。"}";
+        }));
+        LatestBatchResult = $"{summary}\n\n{details}\n\n已提交表示 Windows 已接收启动请求。软件是否已启动，请查看对应的脚本卡。";
         SetNotice(summary, details: details);
     });
 
@@ -205,6 +214,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     }
 
     public string? NoticeDetails { get; private set; }
+    public string? LatestBatchResult { get; private set; }
 
     private void SetNotice(string notice, LaunchNotice? launch = null, string? details = null)
     {

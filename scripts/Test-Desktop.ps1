@@ -406,6 +406,7 @@ try {
         }
         $batch = Wait-Element $window 'LaunchPaired' -ById
         if ($batch.Current.IsEnabled) { throw 'Batch launch was enabled with no configured pairs.' }
+        if (Find-Element $window 'ShowBatchResult' -ById) { throw 'A batch result was shown before any batch ran.' }
         $chartOption = Wait-Element $window 'ChartMemory' -ById
         if ($chartOption.Current.Name -ne '内存') { throw 'The chart selector did not expose its accessible name.' }
         $selectionPattern = [Windows.Automation.SelectionItemPattern]::Pattern

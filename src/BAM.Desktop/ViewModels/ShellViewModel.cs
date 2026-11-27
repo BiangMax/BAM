@@ -14,6 +14,7 @@ internal sealed record NavigationItem(string Label, SymbolRegular Icon, object V
 internal sealed partial class ShellViewModel : ObservableObject
 {
     [ObservableProperty] private NavigationItem _selected;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasBatchResult))] private string? _latestBatchResult;
     private readonly ScriptsViewModel _scripts;
     private readonly LogsViewModel _logs;
     private readonly LiveDesktopData? _live;
@@ -31,6 +32,7 @@ internal sealed partial class ShellViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(OperationNotice));
             OnPropertyChanged(nameof(OperationNoticeDetails));
+            LatestBatchResult = _live.LatestBatchResult;
             LaunchPairedCommand.NotifyCanExecuteChanged();
         };
         _settings.PropertyChanged += OnSettingsChanged;
@@ -56,6 +58,7 @@ internal sealed partial class ShellViewModel : ObservableObject
     public string MonitoringStatus => IsDemo ? "合成采样" : _settings.CollectResources ? "本地进程监控" : "资源采样已暂停";
     public string? OperationNotice => _live?.Notice;
     public string? OperationNoticeDetails => _live?.NoticeDetails ?? OperationNotice;
+    public bool HasBatchResult => LatestBatchResult is not null;
     public bool HasErrors => _logs.ErrorCount > 0;
     public string ErrorLabel => $"{_logs.ErrorCount} 条错误";
     public static string Version { get; } = typeof(ShellViewModel).Assembly
@@ -143,6 +146,15 @@ internal sealed partial class ShellViewModel : ObservableObject
         $"工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
 
     [RelayCommand]
+    private async Task ShowBatchResult()
+    {
+        if (LatestBatchResult is not { } report) return;
+        var dialog = CreateDialog("上次批量启动结果", report, scrollable: true);
+        dialog.CloseButtonText = "关闭";
+        await dialog.ShowDialogAsync();
+    }
+
+    [RelayCommand]
     private async Task RemoveScript(ScriptItem? script)
     {
         if (_live is null || script?.Installation is not { } program) return;
@@ -217,6 +229,14 @@ internal sealed partial class ShellViewModel : ObservableObject
 
     private static async Task<bool> Confirm(string title, string content, string affirmative, bool scrollable = false)
     {
+        var dialog = CreateDialog(title, content, scrollable);
+        dialog.PrimaryButtonText = affirmative;
+        dialog.CloseButtonText = "取消";
+        return await dialog.ShowDialogAsync() == Wpf.Ui.Controls.MessageBoxResult.Primary;
+    }
+
+    private static Wpf.Ui.Controls.MessageBox CreateDialog(string title, string content, bool scrollable)
+    {
         var body = new System.Windows.Controls.TextBlock { Text = content, FontSize = 14 };
         body.SetResourceReference(System.Windows.FrameworkElement.StyleProperty, "Bam.BodyCopy");
         var dialog = new Wpf.Ui.Controls.MessageBox
@@ -231,11 +251,9 @@ internal sealed partial class ShellViewModel : ObservableObject
                 VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Disabled
             } : body,
-            UseLayoutRounding = true,
-            PrimaryButtonText = affirmative,
-            CloseButtonText = "取消"
+            UseLayoutRounding = true
         };
         dialog.SetResourceReference(System.Windows.Controls.Control.FontFamilyProperty, "Bam.Font");
-        return await dialog.ShowDialogAsync() == Wpf.Ui.Controls.MessageBoxResult.Primary;
+        return dialog;
     }
 }
