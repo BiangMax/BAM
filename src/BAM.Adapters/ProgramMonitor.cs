@@ -6,6 +6,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     IProgramEventStore eventStore, TimeProvider clock) : IDisposable
 {
     private static readonly StringComparer Paths = StringComparer.OrdinalIgnoreCase;
+    private static readonly TimeSpan LaunchConfirmationWindow = TimeSpan.FromSeconds(25);
     private readonly SemaphoreSlim _gate = new(1);
     private readonly long _started = clock.GetTimestamp();
     private readonly EmulatorResources _emulators = new(platform, clock);
@@ -23,6 +24,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private readonly Dictionary<ProcessIdentity, bool> _awaitingExit = [];
     private readonly ProgramEventBuffer _events = new();
     private long? _metadataAt;
+    private long _sampleNumber;
     private bool _eventStoreUnavailable;
     private bool _initialized;
     private int _batchActive;
@@ -143,6 +145,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         await _gate.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
+            var sampleNumber = Interlocked.Increment(ref _sampleNumber);
             var stamp = clock.GetTimestamp();
             var now = clock.GetUtcNow();
             bool refreshMetadata = _metadataAt is null || clock.GetElapsedTime(_metadataAt.Value, stamp) >= TimeSpan.FromSeconds(30);
@@ -178,7 +181,10 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 var issue = match.Issue ?? metadata.Issue;
                 var state = match.State == ProcessState.Stopped && !metadata.EntryAvailable ? ProcessState.Unknown : match.State;
                 var launchConfirmationTimedOut = false;
-                if (_launches.TryGetValue(program.Id, out var launched))
+                _launches.TryGetValue(program.Id, out var launched);
+                var confirmationExpired = launched?.Outcome == CommandStatus.Accepted &&
+                    clock.GetElapsedTime(launched.Timestamp, stamp) >= LaunchConfirmationWindow;
+                if (launched is not null)
                 {
                     if (launched.Emulator && launched.Outcome == CommandStatus.Unknown)
                     {
@@ -191,8 +197,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                             await WriteEvent(program, EventSeverity.Information, "重启后已确认新实例",
                                 "已复核新的工作进程身份。", cancellation).ConfigureAwait(false);
                     }
-                    else if (launched.Outcome is null || (launched.Outcome == CommandStatus.Accepted &&
-                        clock.GetElapsedTime(launched.Timestamp, stamp) < TimeSpan.FromSeconds(25)))
+                    else if (launched.Outcome is null || (launched.Outcome == CommandStatus.Accepted && !confirmationExpired))
                         state = ProcessState.Starting;
                     else
                     {
@@ -250,6 +255,8 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 }
                 var current = new ProgramStatus(program, metadata, state, worker, cpu, worker?.WorkingSet / 1048576d, upt, issue,
                     actions, launchConfirmationTimedOut, EmulatorUsage: emulatorUsage.GetValueOrDefault(program.Id), PairedStartup: pairedStartup);
+                if (launched is { BatchResult: { } row, Outcome: null or CommandStatus.Accepted })
+                    row.Observe(current, catalog, sampleNumber, confirmationExpired, launched.Outcome == CommandStatus.Accepted);
                 await RecordTransition(previous, current, expectedExit, resources, cancellation).ConfigureAwait(false);
                 _previous[program.Id] = current;
                 statuses.Add(current);
@@ -272,7 +279,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         finally { _gate.Release(); }
     }
 
-    public async Task<IReadOnlyList<(ProgramInstallation Program, CommandResult Result)>> LaunchBatchAsync(
+    public async Task<IReadOnlyList<BatchLaunchResult>> LaunchBatchAsync(
         IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests, CancellationToken cancellation)
     {
         if (Interlocked.Exchange(ref _batchActive, 1) != 0)
@@ -283,23 +290,23 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             var duplicates = entries.Where(request => request.Program is { SupportsEmulatorStartup: true, Emulator.Entry: not null })
                 .GroupBy(request => LauncherKey(request.Program.Emulator!.Entry))
                 .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet();
-            var results = new List<(ProgramInstallation, CommandResult)>(entries.Length);
+            var results = new List<BatchLaunchResult>(entries.Length);
             foreach (var (program, entry) in entries)
             {
                 cancellation.ThrowIfCancellationRequested();
-                CommandResult result;
+                var row = new BatchLaunchResult(program, entry);
                 if (program.SupportsEmulatorStartup && program.Emulator?.Entry is { } launcher && duplicates.Contains(LauncherKey(launcher)))
-                    result = new(CommandStatus.Denied, "多组使用了相同的启动目标和参数，请为每组选择自己的模拟器入口。");
+                    row.Result = new(CommandStatus.Denied, "多组使用了相同的启动目标和参数，请为每组选择自己的模拟器入口。");
                 else
                 {
                     var action = program.Kind == ProgramKind.Maa ? ProgramAction.Start : ProgramAction.StartWithEmulator;
-                    try { result = await ExecuteAsync(program, action, null, 0, cancellation, entry).ConfigureAwait(false); }
+                    try { row.Result = await ExecuteAsync(program, action, null, 0, cancellation, entry, row).ConfigureAwait(false); }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
                     {
-                        result = new(CommandStatus.Unknown, "本地操作中断，请检查配置和进程状态。");
+                        row.Result = new(CommandStatus.Unknown, "本地操作中断，请检查配置和进程状态。");
                     }
                 }
-                results.Add((program, result));
+                results.Add(row);
             }
             return results;
         }
@@ -309,8 +316,12 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private static (string Target, string Arguments) LauncherKey(LaunchEntry entry) =>
         ((entry.ResolvedTarget ?? entry.TargetPath ?? "").ToUpperInvariant(), entry.Arguments ?? "");
 
-    public async Task<CommandResult> ExecuteAsync(ProgramInstallation requested, ProgramAction action,
-        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry = null)
+    public Task<CommandResult> ExecuteAsync(ProgramInstallation requested, ProgramAction action,
+        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry = null) =>
+        ExecuteAsync(requested, action, selected, window, cancellation, confirmedEntry, null);
+
+    private async Task<CommandResult> ExecuteAsync(ProgramInstallation requested, ProgramAction action,
+        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry, BatchLaunchResult? batch)
     {
         var delegated = false;
         var starts = action is ProgramAction.Start or ProgramAction.StartWithEmulator;
@@ -338,7 +349,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 if (starts)
                 {
                     if (match.State != ProcessState.Stopped)
-                        return await ReportResult(requested, action, new(CommandStatus.Denied,
+                        return await ReportResult(requested, action, RejectStart(batch, match.Worker,
                             match.Issue ?? "已有工作进程，请刷新后重试。"), cancellation).ConfigureAwait(false);
                 }
                 else if (selected is null || match.Worker is not { } worker || !selected.Equals(worker.Identity) ||
@@ -378,9 +389,9 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             finally { _gate.Release(); }
 
             if (action == ProgramAction.Start)
-                result = await LaunchAsync(requested, launchEntry!, false, cancellation).ConfigureAwait(false);
+                result = await LaunchAsync(requested, launchEntry!, false, cancellation, batch: batch).ConfigureAwait(false);
             else if (action == ProgramAction.StartWithEmulator)
-                result = await LaunchWithEmulatorAsync(requested, launchEntry!, requested.Emulator!, cancellation).ConfigureAwait(false);
+                result = await LaunchWithEmulatorAsync(requested, launchEntry!, requested.Emulator!, cancellation, batch).ConfigureAwait(false);
             else if (action != ProgramAction.Activate && result.Status == CommandStatus.Accepted)
             {
                 result = await WaitForExit(requested, selected!, action == ProgramAction.Restart, cancellation).ConfigureAwait(false);
@@ -415,8 +426,14 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         return issue;
     }
 
+    private static CommandResult RejectStart(BatchLaunchResult? batch, WorkerSnapshot? worker, string reason)
+    {
+        if (batch is not null) batch.AlreadyRunning = worker is not null;
+        return new(CommandStatus.Denied, reason);
+    }
+
     private async Task<CommandResult> LaunchWithEmulatorAsync(ProgramInstallation program, LaunchEntry entry, EmulatorStartup setup,
-        CancellationToken cancellation)
+        CancellationToken cancellation, BatchLaunchResult? batch)
     {
         await _gate.WaitAsync(cancellation).ConfigureAwait(false);
         try
@@ -424,7 +441,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             if (!catalog.HasWorkerBinding(program)) return new(CommandStatus.Denied, "工作程序与此安装不匹配，请重新定位。");
             var match = Match(program, Scan(false, cancellation));
             if (match.State != ProcessState.Stopped)
-                return new(CommandStatus.Denied, match.Issue ?? "已有工作进程，启动请求已取消。");
+                return RejectStart(batch, match.Worker, match.Issue ?? "已有工作进程，启动请求已取消。");
             var issue = CheckLaunchEntry(program, entry, out _) ?? catalog.EmulatorIssue(program, setup);
             if (issue is not null) return new(CommandStatus.Denied, issue);
             _launches[program.Id] = new(clock.GetTimestamp(), null, IsRestart: false, Emulator: true);
@@ -445,28 +462,31 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         }, cancellation).ConfigureAwait(false);
         var remaining = waitDuration - clock.GetElapsedTime(waitStarted);
         if (remaining > TimeSpan.Zero) await Task.Delay(remaining, clock, cancellation).ConfigureAwait(false);
-        result = await LaunchAsync(program, entry, false, cancellation, paired: true).ConfigureAwait(false);
+        result = await LaunchAsync(program, entry, false, cancellation, paired: true, batch: batch).ConfigureAwait(false);
         return result.Status == CommandStatus.Accepted ? result : result with { Reason = $"模拟器启动请求已提交。{result.Reason}" };
     }
 
     private async Task<CommandResult> LaunchAsync(ProgramInstallation program, LaunchEntry entry, bool restart,
-        CancellationToken cancellation, bool paired = false)
+        CancellationToken cancellation, bool paired = false, BatchLaunchResult? batch = null)
     {
+        ProcessIdentity? previousWorker;
         await _gate.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
             if (!catalog.HasWorkerBinding(program)) return new(CommandStatus.Denied, "工作程序与此安装不匹配，请重新定位。");
             var match = Match(program, Scan(false, cancellation));
             if (match.State != ProcessState.Stopped)
-                return new(CommandStatus.Denied, match.Issue ?? "已有工作进程，启动请求已取消。");
+                return RejectStart(batch, match.Worker, match.Issue ?? "已有工作进程，启动请求已取消。");
             if (CheckLaunchEntry(program, entry, out _) is { } issue) return new(CommandStatus.Denied, issue);
-            _launches[program.Id] = new(clock.GetTimestamp(), null, restart, Emulator: false, Paired: paired);
+            previousWorker = _previous.GetValueOrDefault(program.Id)?.Worker?.Identity;
+            _launches[program.Id] = new(clock.GetTimestamp(), null, restart, Emulator: false, Paired: paired, BatchResult: batch);
         }
         finally { _gate.Release(); }
-        return await SubmitLaunchAsync(program.Id, entry, emulator: false, cancellation).ConfigureAwait(false);
+        return await SubmitLaunchAsync(program.Id, entry, emulator: false, cancellation, batch, previousWorker).ConfigureAwait(false);
     }
 
-    private async Task<CommandResult> SubmitLaunchAsync(Guid id, LaunchEntry entry, bool emulator, CancellationToken cancellation)
+    private async Task<CommandResult> SubmitLaunchAsync(Guid id, LaunchEntry entry, bool emulator, CancellationToken cancellation,
+        BatchLaunchResult? batch = null, ProcessIdentity? previousWorker = null)
     {
         // ShellExecute can wait for a target-specific UAC decision. Other installations continue to be sampled.
         var invoked = false;
@@ -476,6 +496,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             result = await Task.Run(() =>
             {
                 cancellation.ThrowIfCancellationRequested();
+                batch?.BeginObservation(previousWorker, clock.GetUtcNow(), Volatile.Read(ref _sampleNumber));
                 invoked = true;
                 try { return platform.Launch(entry); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException
@@ -652,5 +673,6 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private const string UnknownScriptLaunch = "Windows 启动请求的结果未知。BAM 将核对工作进程，确认前暂停再次启动。";
     private const string EmulatorAlreadySubmitted = "此前已提交模拟器启动。核对后可单独启动软件。";
     private const string UnknownEmulatorLaunch = "模拟器启动请求的结果未知，已停止后续启动。请在外部核对，本次会话暂停此安装的启动操作。";
-    private sealed record PendingLaunch(long Timestamp, CommandStatus? Outcome, bool IsRestart, bool Emulator, bool Paired = false);
+    private sealed record PendingLaunch(long Timestamp, CommandStatus? Outcome, bool IsRestart, bool Emulator,
+        bool Paired = false, BatchLaunchResult? BatchResult = null);
 }

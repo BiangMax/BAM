@@ -45,6 +45,11 @@ internal static class ProcessFixture
     }
     private static int Run(string[] args)
     {
+        if (args.Length == 2 && args[0] == "wait-for-worker")
+        {
+            using (var ready = EventWaitHandle.OpenExisting(args[1]))
+                return ready.WaitOne(TimeSpan.FromSeconds(30)) ? 0 : 1;
+        }
         if (args.Length == 1 && args[0] == "resource-load")
         {
             var buffer = new byte[64 * 1024 * 1024];

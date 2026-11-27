@@ -68,7 +68,11 @@ public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMeta
     WorkerSnapshot? Worker, double? Cpu, double? WorkingSetMiB, TimeSpan? Uptime, string? Issue,
     IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false,
     GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null, EmulatorResourceUsage? EmulatorUsage = null,
-    PairedStartupProgress? PairedStartup = null);
+    PairedStartupProgress? PairedStartup = null)
+{
+    public bool HasNewWorker(ProcessIdentity? previous) =>
+        Process == ProcessState.Running && Worker is { } worker && !worker.Identity.Equals(previous);
+}
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
     double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms,

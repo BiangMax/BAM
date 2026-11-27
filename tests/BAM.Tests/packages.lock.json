@@ -160,7 +160,7 @@
       "bam.adapters": {
         "type": "Project",
         "dependencies": {
-          "BAM.Core": "[0.1.0-alpha.2, )"
+          "BAM.Core": "[0.1.0, )"
         }
       },
       "bam.core": {

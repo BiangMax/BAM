@@ -14,7 +14,7 @@ internal sealed record NavigationItem(string Label, SymbolRegular Icon, object V
 internal sealed partial class ShellViewModel : ObservableObject
 {
     [ObservableProperty] private NavigationItem _selected;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasBatchResult))] private string? _latestBatchResult;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasBatchResult))] private BatchReport? _latestBatchResult;
     private readonly ScriptsViewModel _scripts;
     private readonly LogsViewModel _logs;
     private readonly LiveDesktopData? _live;
@@ -150,12 +150,10 @@ internal sealed partial class ShellViewModel : ObservableObject
         $"工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
 
     [RelayCommand]
-    private async Task ShowBatchResult()
+    private void ShowBatchResult()
     {
         if (LatestBatchResult is not { } report) return;
-        var dialog = CreateDialog("上次批量启动结果", report, scrollable: true);
-        dialog.CloseButtonText = "关闭";
-        await dialog.ShowDialogAsync();
+        new BatchResultWindow { DataContext = report, Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
     }
 
     [RelayCommand]

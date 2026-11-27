@@ -2,21 +2,21 @@
 
 **One Hub, All Scripts.**
 
-BAM（Biang 自动化管理器）是面向 Windows 11 x64 的独立桌面项目。它计划在同一界面发现和管理用户已安装的游戏自动化工具，并分别呈现软件进程、窗口和游戏任务状态。各工具继续使用自己的界面、配置、任务逻辑和更新机制。
+BAM（Biang Automation Manager，Biang 自动化管理器）是面向 Windows 11 x64 的游戏自动化脚本管理器。在一个界面配置、启动和查看 MaaEnd、MAA、BBchannel 及其模拟器。各工具沿用自己的界面、配置、游戏任务和更新机制。
 
-> **早期开发 · Phase 3 通用管理实机验收完成。** 所有者已验证 BAM 托盘、MaaEnd 与 MAA 的窗口和进程管理，以及 BBchannel 原 CMD 启动和窗口恢复。BBchannel 收到关闭请求时可能保留在自己的托盘。[独立审查与验收结果](docs/PHASE3_CODE_REVIEW.md#所有者验收与出口)
+> **0.1.0 发行说明。** 本版加入可随进程观测更新的批量启动结果。[发行说明与升级回退](docs/releases/v0.1.0.md) · [稳定版路线](docs/ROADMAP.md)
 
 ## 下载
 
-Windows 11 x64 用户可下载 Alpha 便携压缩包，完整解压后运行 `BAM.exe`。包内包含 .NET 运行时，脚本和模拟器由各项目单独提供。[GitHub Releases](https://github.com/BiangMax/BAM/releases)
+Windows 11 x64 用户可从 GitHub Releases 下载已发布的便携压缩包，核对 SHA-256 并完整解压后运行 `BAM.exe`。包内包含 .NET 运行时，脚本和模拟器由各项目单独提供。[GitHub Releases](https://github.com/BiangMax/BAM/releases)
 
-## 计划接入
+## 支持的工具
 
-| 工具 | 游戏 | 计划范围 |
+| 工具 | 游戏 | 当前日用范围 |
 | --- | --- | --- |
-| [MaaEnd](https://github.com/MaaEnd/MaaEnd) | 明日方舟：终末地 | 通用软件管理。后续验证 MXU 的实例选择、启动参数和只读任务观测。 |
-| [MAA](https://github.com/MaaAssistantArknights/MaaAssistantArknights) | 明日方舟 | 通用软件管理。后续验证由用户启用的回环远控及任务事件。 |
-| [BBchannel](https://github.com/xiaoruanmm/FGOautomation-BBchannel-) | Fate/Grand Order | 通过启动入口和工作进程提供通用管理。 |
+| [MaaEnd](https://github.com/MaaEnd/MaaEnd) | 明日方舟：终末地 | 通用进程与窗口管理，支持配置模拟器入口及启动等待时间。 |
+| [MAA](https://github.com/MaaAssistantArknights/MaaAssistantArknights) | 明日方舟 | 通用进程与窗口管理，按 MAA 原设置启动模拟器。 |
+| [BBchannel](https://github.com/xiaoruanmm/FGOautomation-BBchannel-) | Fate/Grand Order | 使用原入口和已确认的工作进程。支持配对启动，正常关闭可能收起到自身托盘。 |
 
 ## 技术栈
 
@@ -32,7 +32,7 @@ dotnet build BAM.slnx -c Release --no-restore
 dotnet test BAM.slnx -c Release --no-build --no-restore
 ```
 
-运行桌面程序可执行 `src/BAM.Desktop/bin/Release/net10.0-windows/win-x64/BAM.exe`。BAM 会在启动后检测已知软件，也可在「脚本管理」中手动选择入口、调整参数或重新定位。MAA 启动前会提示其原配置可能自动运行任务及启动模拟器。BAM 设置、安装记录及日志存放于 `%LocalAppData%\BAM`。发布、演示构建及夹具验证命令见 [Phase 3 报告](docs/PHASE3_REPORT.md)。
+运行桌面程序可执行 `src/BAM.Desktop/bin/Release/net10.0-windows/win-x64/BAM.exe`。框架依赖构建需要对应的 .NET 10 x64 桌面和 ASP.NET Core 共享运行时。BAM 启动后检测已知软件，也可在「脚本管理」中手动选择入口、调整参数或重新定位。原软件可能根据自身设置在启动时运行任务。BAM 设置、安装记录和日志存放于 `%LocalAppData%\BAM`。管理员或权限未知时可以读取现有配置，设置、安装变更和新增日志仅在会话内生效。[构建和夹具验证](docs/PHASE3_REPORT.md)
 
 ## 项目结构
 
@@ -50,12 +50,10 @@ dotnet test BAM.slnx -c Release --no-build --no-restore
 
 ## 开发路线
 
-1. **已完成 · Phase 0 至 2.1。** 完成可行性调查、工程基础、桌面壳和视觉精修。当前界面作为后续设计基线。
-2. **已完成实机验收 · Phase 3 通用进程管理。** 按下方工程链接了解本地发布和使用方式。当前框架依赖版需要 .NET 10 x64 桌面运行时、ASP.NET Core 10 x64 共享运行时及同目录依赖。状态栏显示 BAM 权限。管理员或权限未知时可以读取现有配置，设置、安装更改和新增日志仅在本次会话生效。启动确认中核对目标、参数及工作目录。
-3. **Phase 4 及以后 · 专属适配与调度。** 按工具版本验证游戏任务深度控制，再评估队列、排程和稳定性。
+批量启动反馈已通过夹具验收。便携包、配置升级和 Windows 恢复场景按稳定版路线核验。原 Phase 5 已因产品需求调整取消，定时任务、无人值守自动调度和高级任务队列已移出计划。深度任务适配是未来可选项。
 
-接手开发先读 [AGENTS.md](AGENTS.md)、[统一待办](docs/BACKLOG.md) 和 [MVP 实施计划](docs/plans/MVP.md)。历史阶段与证据见[完整路线图](docs/ROADMAP.md)。
+接手开发先读 [AGENTS.md](AGENTS.md)、[稳定版路线](docs/ROADMAP.md)、[统一待办](docs/BACKLOG.md) 和 [实施与验证记录](docs/plans/MVP.md)。
 
 ## 第三方项目与许可
 
-BAM 是独立项目。上述工具及游戏的名称归各自权利人所有。用户通过各原项目获取和更新工具。本仓库仅保留 BAM 工程及其验证资料。BAM 的许可证由项目所有者决定。
+BAM 采用 MIT 许可证，版权归 BiangMax 所有。上述工具及游戏的名称归各自权利人所有。用户通过各原项目获取和更新工具。[BAM 许可证](LICENSE) · [第三方声明](docs/releases/THIRD-PARTY-MIT.txt)

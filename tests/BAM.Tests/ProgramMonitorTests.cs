@@ -624,8 +624,138 @@ public sealed class ProgramMonitorTests
         var results = await rig.Monitor.LaunchBatchAsync(programs.Select(program => (program, program.Entry)).ToArray(), Token);
         Assert.Equal(new[] { CommandStatus.Denied, CommandStatus.Accepted, CommandStatus.Denied },
             results.Select(item => item.Result.Status));
+        Assert.Equal(duplicate ? BatchLaunchState.Failed : BatchLaunchState.Skipped, results[0].State);
+        Assert.Equal(BatchLaunchState.Failed, results[2].State);
+        var reason = results[2].Result.Reason;
+        Assert.False(string.IsNullOrEmpty(reason));
+        rig.Platform.Workers = programs.Select(p => MetricWorker(p.WorkerPaths[0], 111, 12)).ToArray();
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Running, results[1].State);
+        Assert.Equal(BatchLaunchState.Failed, results[2].State);
+        Assert.Equal(reason, results[2].Result.Reason);
         Assert.Equal(programs[1].Entry, Assert.Single(rig.Platform.Submitted));
         Assert.Empty(rig.Platform.Controls);
+    }
+
+    [Fact]
+    public async Task BatchKeepsShortLivedWorkerObservedWhileAnotherGroupWaits()
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch();
+        var pair = programs[0] with { Emulator = programs[0].Emulator! with { WaitSeconds = 5 } };
+        var maa = programs[1];
+        rig.Store.Programs = [maa, pair];
+        await rig.Monitor.InitializeAsync(Token);
+        var batch = rig.Monitor.LaunchBatchAsync([(maa, maa.Entry), (pair, pair.Entry)], Token);
+        await rig.Clock.DelayScheduled.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        rig.Platform.Workers = [MetricWorker(maa.WorkerPaths[0], 19, 12), MetricWorker(pair.WorkerPaths[0], 21, 12)];
+        await rig.Monitor.SampleAsync(false, Token);
+        rig.Platform.Workers = [];
+        await rig.Monitor.SampleAsync(false, Token);
+        rig.Clock.Tick(wallSeconds: 5, elapsedSeconds: 5);
+        var rows = await batch;
+        Assert.Equal(BatchLaunchState.Running, rows[0].State);
+        Assert.Equal(BatchLaunchState.Pending, rows[1].State);
+
+        // A frame showing the first installation cannot confirm the second.
+        rig.Platform.Workers = [MetricWorker(maa.WorkerPaths[0], 20, 12)];
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Pending, rows[1].State);
+        rig.Platform.Workers = [new(new(pair.WorkerPaths[0], 21, rig.Clock.GetUtcNow()), null, null, null, null, false)];
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Running, rows[1].State);
+        Assert.Equal(3, rig.Platform.Launches);
+    }
+
+    [Theory]
+    [InlineData(CommandStatus.Accepted, BatchLaunchState.Running)]
+    [InlineData(CommandStatus.Failed, BatchLaunchState.Failed)]
+    [InlineData(CommandStatus.Unknown, BatchLaunchState.Unconfirmed)]
+    public async Task EarlyObservationOnlyConfirmsAnAcceptedDispatch(CommandStatus outcome, BatchLaunchState expected)
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        rig.Platform.LaunchResult = new(outcome, "夹具派发结果");
+        rig.Platform.Spawn = () =>
+        {
+            entered.SetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+        };
+        var batch = rig.Monitor.LaunchBatchAsync([(Program, Entry)], Token);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            rig.Platform.Workers = [rig.Worker(19, 1)];
+            await rig.Monitor.SampleAsync(false, Token);
+            rig.Platform.Workers = [];
+            await rig.Monitor.SampleAsync(false, Token);
+        }
+        finally { release.Set(); }
+        var row = Assert.Single(await batch);
+        Assert.Equal(expected, row.State);
+        Assert.Single(rig.Platform.Submitted);
+    }
+
+    [Fact]
+    public async Task ChangedEntryCannotConfirmAWorkerFromCachedMetadata()
+    {
+        using var rig = new Rig();
+        var link = Path.ChangeExtension(Entry.TargetPath, ".lnk");
+        var entry = rig.Files.Links[link] = Entry with { OriginalPath = link };
+        var program = new InstallationCatalog(rig.Files).Import(link);
+        rig.Store.Programs = [program];
+        await rig.Monitor.InitializeAsync(Token);
+        var before = Assert.Single((await rig.Monitor.SampleAsync(false, Token)).Programs);
+        var row = Assert.Single(await rig.Monitor.LaunchBatchAsync([(program, before.Metadata.EffectiveEntry!)], Token));
+        Assert.Equal(BatchLaunchState.Pending, row.State);
+        rig.Files.Links[link] = entry with { Arguments = "--changed" };
+        rig.Platform.Workers = [rig.Worker(17, 0)];
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Unconfirmed, row.State);
+        Assert.Single(rig.Platform.Submitted);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BatchRequiresFreshWorkerAndKeepsRoundsIndependent(bool observeOldWorker)
+    {
+        using var rig = new Rig();
+        await rig.Monitor.InitializeAsync(Token);
+        var old = rig.Worker(17, 1);
+        rig.Platform.Workers = [old];
+        await rig.Monitor.SampleAsync(false, Token);
+        rig.Platform.Workers = [];
+        rig.Clock.Tick();
+        var first = Assert.Single(await rig.Monitor.LaunchBatchAsync([(Program, Entry)], Token));
+        Assert.Equal(BatchLaunchState.Pending, first.State);
+        var duplicate = Assert.Single(await rig.Monitor.LaunchBatchAsync([(Program, Entry)], Token));
+        Assert.Equal(BatchLaunchState.Failed, duplicate.State);
+        Assert.Single(rig.Platform.Submitted);
+
+        if (observeOldWorker) rig.Platform.Workers = [old];
+        else rig.Clock.Tick(wallSeconds: -3, elapsedSeconds: 25);
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Unconfirmed, first.State);
+        if (!observeOldWorker)
+        {
+            var retry = Assert.Single(await rig.Monitor.LaunchBatchAsync([(Program, Entry)], Token));
+            Assert.Equal(BatchLaunchState.Failed, retry.State);
+            Assert.Single(rig.Platform.Submitted);
+            rig.Platform.Workers = [rig.Worker(17, 0, creation: 1)];
+            await rig.Monitor.SampleAsync(false, Token);
+        }
+        rig.Platform.Workers = [];
+        var next = Assert.Single(await rig.Monitor.LaunchBatchAsync([(Program, Entry)], Token));
+        Assert.Equal(BatchLaunchState.Pending, next.State);
+        rig.Platform.Workers = [rig.Worker(17, 0, creation: 2)];
+        await rig.Monitor.SampleAsync(false, Token);
+        Assert.Equal(BatchLaunchState.Running, next.State);
+        Assert.Equal(BatchLaunchState.Unconfirmed, first.State);
+        Assert.Equal(BatchLaunchState.Failed, duplicate.State);
+        Assert.Equal(2, rig.Platform.Launches);
     }
 
     [Fact]

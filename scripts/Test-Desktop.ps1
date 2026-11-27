@@ -11,7 +11,8 @@ param(
     [switch] $RequireForegroundChecks,
     [switch] $CheckChartAccessibility,
     [switch] $CheckLogStress,
-    [switch] $CheckLogReplay
+    [switch] $CheckLogReplay,
+    [switch] $CheckBatchResult
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,7 @@ if (($CheckMonitorDpi -or $RequireForegroundChecks -or $CheckLogStress -or $Chec
     throw 'Monitor, foreground and log checks require an isolated VerificationEmpty build.'
 }
 if ($CheckLogReplay -and $CheckLogStress) { throw 'Run log replay and stress separately.' }
+if ($CheckBatchResult -and $Output -ne 'VerificationEmpty') { throw 'Batch feedback requires an isolated VerificationEmpty build.' }
 if ($CheckChartAccessibility -and $Output -ne 'OwnLoad') { throw 'The chart accessibility check requires the isolated OwnLoad fixture.' }
 $root = Split-Path $PSScriptRoot
 $folder = switch ($Output) {
@@ -230,6 +232,10 @@ function Measure-OwnLoad($Process, [string] $Scenario, [scriptblock] $Verify) {
 
 $owned = [Collections.Generic.List[Diagnostics.Process]]::new()
 try {
+    if ($CheckBatchResult) {
+        & (Join-Path $PSScriptRoot 'DesktopSmoke.BatchResult.ps1')
+        return
+    }
     if ($CheckLogReplay) {
         $logs = Join-Path $profile 'logs'
         [void][IO.Directory]::CreateDirectory($logs)

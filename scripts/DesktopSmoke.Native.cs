@@ -9,6 +9,9 @@ public static class BamSmokeWindow
     [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32")] public static extern bool IsZoomed(IntPtr hwnd);
     [DllImport("user32")] public static extern uint GetDpiForWindow(IntPtr hwnd);
+    private delegate bool WindowCallback(IntPtr hwnd, IntPtr data);
+    [DllImport("user32")] private static extern bool EnumThreadWindows(uint thread, WindowCallback callback, IntPtr data);
+    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int capacity);
     [DllImport("user32")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint owner);
@@ -51,6 +54,21 @@ public static class BamSmokeWindow
     public static int MonitorCount() => GetMonitors().Count;
 
     public static bool IsForeground(IntPtr hwnd) => GetForegroundWindow() == hwnd;
+    public static IntPtr FindDialog(IntPtr owner, int pid, string title)
+    {
+        AssertWindow(owner, pid);
+        var found = IntPtr.Zero;
+        EnumThreadWindows(GetWindowThreadProcessId(owner, out _), (hwnd, _) =>
+        {
+            if (hwnd == owner || !IsWindowVisible(hwnd)) return true;
+            var name = new System.Text.StringBuilder(256);
+            GetWindowText(hwnd, name, name.Capacity);
+            if (name.ToString() != title) return true;
+            found = hwnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
 
     public static void PressKeyInOwnedWindow(IntPtr hwnd, int pid, int virtualKey)
     {
