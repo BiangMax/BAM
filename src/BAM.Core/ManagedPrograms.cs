@@ -40,7 +40,7 @@ public sealed record ProgramInstallation(Guid Id, string Name, ProgramKind Kind,
     public EmulatorMonitoring? EmulatorMonitor { get; init; }
 
     [JsonIgnore]
-    public bool SupportsEmulatorStartup => Kind is ProgramKind.MaaEnd or ProgramKind.Maa or ProgramKind.BBchannel;
+    public bool SupportsEmulatorStartup => Kind is ProgramKind.MaaEnd or ProgramKind.BBchannel;
 
     [JsonIgnore]
     public ScriptDefinition Definition => new(Id, Name, Entry.TargetPath, WorkerPaths);

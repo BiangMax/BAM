@@ -118,25 +118,23 @@ internal sealed partial class ShellViewModel : ObservableObject
         editor.ShowDialog();
     }
 
-    private bool CanLaunchPaired() => _live?.Scripts.Any(script => script.CanStartWithEmulator) == true;
+    private bool CanLaunchPaired() => _live?.Scripts.Any(script => script.CanStartInBatch) == true;
 
     [RelayCommand(CanExecute = nameof(CanLaunchPaired))]
     private async Task LaunchPaired()
     {
         if (_live is null) return;
-        var requests = _live.Scripts.Where(script => script is
-            { CanStartWithEmulator: true, EffectiveEntry: not null, Installation.Emulator.Entry: not null })
+        var requests = _live.Scripts.Where(script => script.CanStartInBatch)
             .Select(script => (Program: script.Installation!, Entry: script.EffectiveEntry!)).ToArray();
         if (requests.Length == 0) return;
 
-        var details = string.Join("\n\n", requests.Select(request =>
-            $"{request.Program.Name} · 等待 {request.Program.Emulator!.WaitSeconds} 秒\n" +
-            DescribeLaunch("模拟器", request.Program.Emulator.Entry) + "\n" + DescribeLaunch("软件", request.Entry)));
+        var details = string.Join("\n\n", requests.Select(request => request.Program.Kind == ProgramKind.Maa
+            ? $"{request.Program.Name} · 由 MAA 按原设置启动模拟器\n" + DescribeLaunch("软件", request.Entry)
+            : $"{request.Program.Name} · 等待 {request.Program.Emulator!.WaitSeconds} 秒\n" +
+              DescribeLaunch("模拟器", request.Program.Emulator.Entry) + "\n" + DescribeLaunch("软件", request.Entry)));
         const string label = "批量启动";
-        var maa = requests.Any(request => request.Program.Kind == ProgramKind.Maa)
-            ? "请先核对 MAA 的原配置，避免它再次启动同一个模拟器。\n" : "";
-        if (await Confirm(label, $"依次启动以下 {requests.Length} 组，每组先开模拟器，再开软件。" +
-            "软件可能按自己的设置自动运行任务。\n" + maa + $"{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
+        if (await Confirm(label, $"依次启动以下 {requests.Length} 组。配对组先开模拟器，再开软件。" +
+            $"软件可能按自己的设置自动运行任务。\n{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
             label, scrollable: true))
             await _live.LaunchBatchAsync(requests);
     }
@@ -175,20 +173,13 @@ internal sealed partial class ShellViewModel : ObservableObject
     private async Task StartWithEmulator(ScriptItem? script)
     {
         if (_live is null || script is not { CanUseEmulatorAction: true, Installation: { } program }) return;
-        if (program.Emulator is not { Entry: { } start } emulator)
+        if (program.Emulator?.Entry is null)
         {
             ShowEditor(script, focusEmulator: true);
             return;
         }
 
-        const string label = "启动模拟器和软件";
-        if (script.EffectiveEntry is not { } entry) return;
-        var details = $"模拟器　{start.TargetPath}\n工作目录　{start.WorkingDirectory}\n参数　{start.Arguments}\n\n" +
-            $"软件　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{entry.Arguments}";
-        if (await Confirm(label, $"先请求启动选定的模拟器，等待 {emulator.WaitSeconds} 秒，然后启动「{script.Name}」。" +
-            "等待时间由你设置。软件可能按原配置自动运行任务。\n" +
-            (program.Kind == ProgramKind.Maa ? "请核对 MAA 的原配置是否还会启动同一个模拟器。\n" : "") +
-            $"{PermissionLabel}。Windows 可能请求目标的权限。\n\n{details}", label))
+        if (script.EffectiveEntry is { } entry)
             await _live.ExecuteAsync(script, ProgramAction.StartWithEmulator, entry);
     }
 

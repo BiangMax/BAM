@@ -88,6 +88,8 @@ internal sealed record ScriptItem(
     };
     public bool CanPrimary => NeedsRelocation || CanStart || CanActivate;
     public bool ShowEmulatorAction => Installation?.SupportsEmulatorStartup == true;
+    public bool CanStartInBatch => EffectiveEntry is not null && Installation is { } program &&
+        (program.Kind == ProgramKind.Maa ? CanStart : program.SupportsEmulatorStartup && CanStartWithEmulator && program.Emulator?.Entry is not null);
     public EmulatorResourceUsage? EmulatorUsage { get; init; }
     public PairedStartupProgress? PairedStartup { get; init; }
     public bool ShowEmulatorUsage => EmulatorUsage is not null;

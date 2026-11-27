@@ -280,7 +280,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         try
         {
             var entries = requests.DistinctBy(request => request.Program.Id).ToArray();
-            var duplicates = entries.Where(request => request.Program.Emulator?.Entry is not null)
+            var duplicates = entries.Where(request => request.Program is { SupportsEmulatorStartup: true, Emulator.Entry: not null })
                 .GroupBy(request => LauncherKey(request.Program.Emulator!.Entry))
                 .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet();
             var results = new List<(ProgramInstallation, CommandResult)>(entries.Length);
@@ -288,11 +288,12 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             {
                 cancellation.ThrowIfCancellationRequested();
                 CommandResult result;
-                if (program.Emulator?.Entry is { } launcher && duplicates.Contains(LauncherKey(launcher)))
+                if (program.SupportsEmulatorStartup && program.Emulator?.Entry is { } launcher && duplicates.Contains(LauncherKey(launcher)))
                     result = new(CommandStatus.Denied, "多组使用了相同的启动目标和参数，请为每组选择自己的模拟器入口。");
                 else
                 {
-                    try { result = await ExecuteAsync(program, ProgramAction.StartWithEmulator, null, 0, cancellation, entry).ConfigureAwait(false); }
+                    var action = program.Kind == ProgramKind.Maa ? ProgramAction.Start : ProgramAction.StartWithEmulator;
+                    try { result = await ExecuteAsync(program, action, null, 0, cancellation, entry).ConfigureAwait(false); }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
                     {
                         result = new(CommandStatus.Unknown, "本地操作中断，请检查配置和进程状态。");

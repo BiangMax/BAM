@@ -199,7 +199,7 @@ public partial class ProgramEditor : Window
             }
             monitoring = new(MonitorImage.Text, number, MonitorWorker.Text.Length > 0 ? MonitorWorker.Text : null);
         }
-        EmulatorStartup? setup = null;
+        var setup = program.SupportsEmulatorStartup ? null : program.Emulator;
         if (program.SupportsEmulatorStartup && _emulator is { } entry)
         {
             if (!int.TryParse(EmulatorWait.Text, out var seconds) || seconds is < 0 or > EmulatorStartup.MaximumWaitSeconds)

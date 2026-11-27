@@ -467,7 +467,6 @@ public sealed class ProgramMonitorTests
     [Theory]
     [InlineData(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1")]
     [InlineData(ProgramKind.BBchannel, "启动.cmd", "--instance 2")]
-    [InlineData(ProgramKind.Maa, "MAA.exe", "--instance 3")]
     public async Task EmulatorShortcutRunsBeforeTheOriginalScriptEntry(ProgramKind kind, string filename, string arguments)
     {
         using var rig = new Rig();
@@ -573,12 +572,18 @@ public sealed class ProgramMonitorTests
     }
 
     [Fact]
-    public async Task OneBatchDispatchesThreeDistinctPairsInOrderAndRejectsAConcurrentBatch()
+    public async Task BatchUsesMaaOwnStartupAndPreservesOrderAndConcurrencyChecks()
     {
         using var rig = new Rig();
         var programs = rig.SetStartupBatch();
         await rig.Monitor.InitializeAsync(Token);
         var requested = programs.Select(program => (program, program.Entry)).ToArray();
+        Assert.Equal(CommandStatus.Denied, (await rig.Monitor.ExecuteAsync(programs[1], ProgramAction.StartWithEmulator,
+            null, 0, Token, programs[1].Entry)).Status);
+        Assert.Empty(rig.Platform.Submitted);
+        var actions = (await rig.Monitor.SampleAsync(false, Token)).Programs.Single(item => item.Installation == programs[1]).Actions;
+        Assert.Contains(ProgramAction.Start, actions);
+        Assert.DoesNotContain(ProgramAction.StartWithEmulator, actions);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var proceed = new ManualResetEventSlim();
         rig.Platform.Spawn = () =>
@@ -597,14 +602,15 @@ public sealed class ProgramMonitorTests
         var results = await batch;
         Assert.Equal(3, results.Count);
         Assert.All(results, result => Assert.Equal(CommandStatus.Accepted, result.Result.Status));
-        Assert.Equal(programs.SelectMany(program => new[] { program.Emulator!.Entry, program.Entry }), rig.Platform.Submitted);
+        Assert.Equal([programs[0].Emulator!.Entry, programs[0].Entry, programs[1].Entry,
+            programs[2].Emulator!.Entry, programs[2].Entry], rig.Platform.Submitted);
         Assert.Empty(rig.Platform.Controls);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BatchSkipsRunningOrConflictingPairsAndProcessesAnIndependentPair(bool duplicate)
+    public async Task BatchSkipsRunningOrConflictingPairsAndStillStartsMaa(bool duplicate)
     {
         using var rig = new Rig();
         var programs = rig.SetStartupBatch(duplicate);
@@ -612,13 +618,13 @@ public sealed class ProgramMonitorTests
         if (!duplicate)
         {
             rig.Platform.Workers = [MetricWorker(programs[0].WorkerPaths[0], 111, 12)];
-            var second = programs[1].Emulator!.Entry;
-            rig.Files.Links[second.OriginalPath] = second with { Arguments = "--unexpected" };
+            var last = programs[2].Emulator!.Entry;
+            rig.Files.Links[last.OriginalPath] = last with { Arguments = "--unexpected" };
         }
         var results = await rig.Monitor.LaunchBatchAsync(programs.Select(program => (program, program.Entry)).ToArray(), Token);
-        Assert.Equal(new[] { CommandStatus.Denied, CommandStatus.Denied, CommandStatus.Accepted },
+        Assert.Equal(new[] { CommandStatus.Denied, CommandStatus.Accepted, CommandStatus.Denied },
             results.Select(item => item.Result.Status));
-        Assert.Equal(new[] { programs[2].Emulator!.Entry, programs[2].Entry }, rig.Platform.Submitted);
+        Assert.Equal(programs[1].Entry, Assert.Single(rig.Platform.Submitted));
         Assert.Empty(rig.Platform.Controls);
     }
 
@@ -760,8 +766,8 @@ public sealed class ProgramMonitorTests
             var programs = new[]
             {
                 SetEmulatorStartup(ProgramKind.MaaEnd, "MaaEnd.exe", "--instance 1"),
-                SetEmulatorStartup(ProgramKind.Maa, "MAA.exe", duplicate ? "--instance 1" : "--instance 2"),
-                SetEmulatorStartup(ProgramKind.BBchannel, "启动.cmd", "--instance 3")
+                SetEmulatorStartup(ProgramKind.Maa, "MAA.exe", "--instance 1"),
+                SetEmulatorStartup(ProgramKind.BBchannel, "启动.cmd", duplicate ? "--instance 1" : "--instance 3")
             }.Select(program => program with { Id = Guid.NewGuid(), Emulator = program.Emulator! with { WaitSeconds = 0 } }).ToArray();
             Store.Programs = programs;
             return programs;

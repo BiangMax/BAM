@@ -202,7 +202,12 @@ public sealed class DesktopLayoutTests
 
         Layout(dashboard, 892, 665);
         Assert.Equal(0, scroll.ScrollableHeight);
-        Assert.Equal(3, FindAll<ScriptCard>(dashboard).Count());
+        var cards = FindAll<ScriptCard>(dashboard).ToArray();
+        Assert.Equal(3, cards.Length);
+        var maa = Assert.IsType<ScriptCardViewModel>(cards[1].DataContext).Script;
+        Assert.False(maa.ShowEmulatorAction);
+        Assert.True((maa with { CanStart = true, EffectiveEntry = entry }).CanStartInBatch);
+        Assert.False((maa with { CanStartWithEmulator = true, EffectiveEntry = entry }).CanStartInBatch);
         AssertPreviewFits(665);
 
         Layout(dashboard, 736, 460);

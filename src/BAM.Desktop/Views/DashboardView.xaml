@@ -42,7 +42,7 @@
                             <Button Style="{StaticResource Bam.SectionLink}" Content="批量启动" Margin="{StaticResource Bam.Gap.Right}"
                                     Visibility="{Binding CanManage, Converter={StaticResource Bam.VisibleWhenTrue}}"
                                     AutomationProperties.AutomationId="LaunchPaired"
-                                    ToolTip="依次启动空闲且已配置模拟器入口的脚本。"
+                                    ToolTip="依次启动已配对的空闲脚本。MAA 可按原设置单独启动。"
                                     ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.LaunchPairedCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
                             <Button Style="{StaticResource Bam.SectionLink}" Content="管理脚本"
