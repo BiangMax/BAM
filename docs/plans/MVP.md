@@ -139,6 +139,8 @@ pwsh -File scripts/Test-Desktop.ps1 -Output VerificationEmpty
 
 正式包本地预检通过。ZIP 内的 `LICENSE.txt` 包含 MIT 及 `Copyright (c) 2026 BiangMax`，ZIP 的 SHA-256 与本地伴随校验文件一致。GitHub 公开资产由标签上的 CI 独立构建和核验。
 
+`v0.1.0` 指向 `4f89478`。标签流水线通过锁定还原、Release 构建、测试、打包和上传后摘要校验，正式发布已公开。重新下载公开 ZIP 后，SHA-256 为 `51432c1a081ebf8e4a7913abf92c5ec9375dbbc13f9c288c12544864f7b61ce6`，与随附文件一致。包内 MIT 生效文本的版权署名为 BiangMax。[正式发布](https://github.com/BiangMax/BAM/releases/tag/v0.1.0) · [标签流水线](https://github.com/BiangMax/BAM/actions/runs/46025336337)
+
 在 Windows 11（26300.9974，Ryzen 7 7800X3D，16 个逻辑处理器）用自有负载测得 BAM 前台 10 秒 CPU 0.976%，托盘首个 10 秒为 0.596%。单独复测托盘 60 秒为 0.195%，工作集 220.9 MiB，句柄 873→853。托盘唤起后恢复 CPU 和内存采样。
 
 按所有者指示，干净 Windows 11 x64 上的便携包启动与重开、实际休眠唤醒和 Explorer 重启列为发布后补验。这些项目当前未实测。
