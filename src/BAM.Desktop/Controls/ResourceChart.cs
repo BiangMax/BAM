@@ -224,7 +224,7 @@ internal sealed class ResourceChart : FrameworkElement
     {
         var text = _cursor is { } point
             ? $"{point.Time.ToLocalTime():HH:mm:ss} · " + (Value(point) is double value
-                ? ShowMemory ? $"工作集 {value:0} MiB" : $"CPU {value:0.0}%" : "此处缺失样本")
+                ? ShowMemory ? $"内存占用 {value:0} MiB" : $"CPU {value:0.0}%" : "此处缺失样本")
             : null;
         SetValue(InspectionPropertyKey, text);
     }

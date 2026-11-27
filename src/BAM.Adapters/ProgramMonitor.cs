@@ -151,7 +151,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             bool refreshMetadata = _metadataAt is null || clock.GetElapsedTime(_metadataAt.Value, stamp) >= TimeSpan.FromSeconds(30);
             if (refreshMetadata) _metadataAt = stamp;
             var scan = Scan(resources, cancellation);
-            var emulatorUsage = _emulators.Sample(_programs, resources, stamp, now, cancellation);
+            var emulatorSample = _emulators.Sample(_programs, resources, stamp, now, cancellation);
             List<ProgramStatus> statuses = [];
             Dictionary<ProcessIdentity, (long Time, TimeSpan Cpu)> nextCpu = [];
             foreach (var program in _programs)
@@ -210,7 +210,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 _previous.TryGetValue(program.Id, out var previous);
                 var expectedExit = previous?.Worker is { } priorWorker && _expectedExits.Contains(priorWorker.Identity);
                 if (_busy.TryGetValue(program.Id, out var pending) &&
-                    pending is ProgramAction.Close or ProgramAction.Restart or ProgramAction.Force &&
+                    pending is ProgramAction.Close or ProgramAction.CloseWithEmulator or ProgramAction.Restart or ProgramAction.Force &&
                     !_launches.ContainsKey(program.Id))
                 {
                     state = worker is not null ? ProcessState.Stopping : state;
@@ -231,6 +231,8 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
 
                 var upt = worker is null || now < worker.Identity.CreatedAtUtc ? (TimeSpan?)null : now - worker.Identity.CreatedAtUtc;
                 var actions = Actions(metadata, worker, state, _busy.ContainsKey(program.Id), _launches.ContainsKey(program.Id));
+                if (actions.Contains(ProgramAction.Close) && program.EmulatorMonitor is not null && !_launches.ContainsKey(program.Id))
+                    actions.Add(ProgramAction.CloseWithEmulator);
                 if (actions.Contains(ProgramAction.Start) && program is { SupportsEmulatorStartup: true, Emulator.Entry: not null })
                 {
                     if (_emulatorSubmitted.Contains(program.Id)) issue ??= EmulatorAlreadySubmitted;
@@ -253,8 +255,8 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     else if (launched?.Paired == true) pairedStartup = new(PairedStartupPhase.StartingScript);
                     else if (pending == ProgramAction.StartWithEmulator) pairedStartup = new(PairedStartupPhase.StartingEmulator);
                 }
-                var current = new ProgramStatus(program, metadata, state, worker, cpu, worker?.WorkingSet / 1048576d, upt, issue,
-                    actions, launchConfirmationTimedOut, EmulatorUsage: emulatorUsage.GetValueOrDefault(program.Id), PairedStartup: pairedStartup);
+                var current = new ProgramStatus(program, metadata, state, worker, cpu, worker?.PrivateWorkingSet / 1048576d, upt, issue,
+                    actions, launchConfirmationTimedOut, EmulatorUsage: emulatorSample.Usage.GetValueOrDefault(program.Id), PairedStartup: pairedStartup);
                 if (launched is { BatchResult: { } row, Outcome: null or CommandStatus.Accepted })
                     row.Observe(current, catalog, sampleNumber, confirmationExpired, launched.Outcome == CommandStatus.Accepted);
                 await RecordTransition(previous, current, expectedExit, resources, cancellation).ConfigureAwait(false);
@@ -266,15 +268,22 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             _expectedExits.RemoveWhere(identity => _exits.ContainsKey(identity) ||
                 !_programs.Any(program => program.WorkerPaths.Contains(identity.ImagePath, Paths)));
             _exits.Clear();
-            var unique = statuses.Where(item => item.Worker is not null).DistinctBy(item => item.Worker!.Identity).ToArray();
-            var cpuCoverage = unique.Count(item => item.Cpu is not null);
-            var memoryCoverage = unique.Count(item => item.WorkingSetMiB is not null);
+            var scripts = statuses.Where(item => item.Worker is not null).DistinctBy(item => item.Worker!.Identity).ToArray();
+            var readings = emulatorSample.Processes;
+            foreach (var item in scripts)
+                readings[item.Worker!.Identity] = (item.Cpu, item.PrivateWorkingSetMiB);
+            var cpuCoverage = readings.Values.Count(item => item.Cpu is not null);
+            var memoryCoverage = readings.Values.Count(item => item.MemoryMiB is not null);
             var unknown = statuses.Count(item => item.Worker is null && item.Process is ProcessState.Unknown or ProcessState.Starting);
             return new(now, clock.GetElapsedTime(_started, stamp), statuses,
-                resources && unique.Length > 0 && cpuCoverage == unique.Length && unknown == 0 ? unique.Sum(item => item.Cpu) : null,
-                resources && unique.Length > 0 && memoryCoverage == unique.Length && unknown == 0 ? unique.Sum(item => item.WorkingSetMiB) : null,
-                cpuCoverage, memoryCoverage, unique.Length, unknown,
-                _events.Snapshot());
+                resources && cpuCoverage > 0 ? Math.Min(100, readings.Values.Sum(item => item.Cpu ?? 0)) : null,
+                resources && memoryCoverage > 0 ? readings.Values.Sum(item => item.MemoryMiB ?? 0) : null,
+                cpuCoverage, memoryCoverage, scripts.Length, unknown, _events.Snapshot())
+            {
+                ResourceProcessCount = readings.Count,
+                UnconfirmedResourceTargets = unknown + emulatorSample.Unconfirmed,
+                ResourcesPaused = !resources
+            };
         }
         finally { _gate.Release(); }
     }
@@ -316,15 +325,34 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
     private static (string Target, string Arguments) LauncherKey(LaunchEntry entry) =>
         ((entry.ResolvedTarget ?? entry.TargetPath ?? "").ToUpperInvariant(), entry.Arguments ?? "");
 
+    public async Task<(EmulatorCloseTarget? Target, string? Issue)> PrepareEmulatorCloseAsync(ProgramInstallation requested,
+        CancellationToken cancellation)
+    {
+        await _gate.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            if (!_programs.Contains(requested, ReferenceEqualityComparer.Instance))
+                return (null, "安装记录已改变，请重新选择。");
+            if (_busy.ContainsKey(requested.Id) || _launches.ContainsKey(requested.Id))
+                return (null, "此安装的操作正在处理或启动尚未确认。");
+            return _emulators.ResolveCloseTarget(requested, _programs, cancellation);
+        }
+        finally { _gate.Release(); }
+    }
+
     public Task<CommandResult> ExecuteAsync(ProgramInstallation requested, ProgramAction action,
-        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry = null) =>
-        ExecuteAsync(requested, action, selected, window, cancellation, confirmedEntry, null);
+        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry = null,
+        EmulatorCloseTarget? confirmedEmulator = null) =>
+        ExecuteAsync(requested, action, selected, window, cancellation, confirmedEntry, null, confirmedEmulator);
 
     private async Task<CommandResult> ExecuteAsync(ProgramInstallation requested, ProgramAction action,
-        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry, BatchLaunchResult? batch)
+        ProcessIdentity? selected, nint window, CancellationToken cancellation, LaunchEntry? confirmedEntry, BatchLaunchResult? batch,
+        EmulatorCloseTarget? confirmedEmulator = null)
     {
         var delegated = false;
         var starts = action is ProgramAction.Start or ProgramAction.StartWithEmulator;
+        var closesPair = action == ProgramAction.CloseWithEmulator;
+        var closesEmulatorOnly = closesPair && selected is null;
         var result = new CommandResult(CommandStatus.Failed, "操作未完成。");
         LaunchEntry? launchEntry = null;
         try
@@ -338,7 +366,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 var needsLaunch = starts || action == ProgramAction.Restart;
                 if (needsLaunch && _launches.TryGetValue(requested.Id, out var pending) && pending.Outcome == CommandStatus.Unknown)
                     return new(CommandStatus.Unknown, pending.Emulator ? UnknownEmulatorLaunch : UnknownScriptLaunch);
-                if (_busy.ContainsKey(requested.Id) || (needsLaunch && _launches.ContainsKey(requested.Id)))
+                if (_busy.ContainsKey(requested.Id) || ((needsLaunch || closesPair) && _launches.ContainsKey(requested.Id)))
                     return new(CommandStatus.Denied, "此安装的操作正在处理或启动尚未确认。");
                 if (action == ProgramAction.StartWithEmulator && _emulatorSubmitted.Contains(requested.Id))
                     return new(CommandStatus.Denied, EmulatorAlreadySubmitted);
@@ -352,8 +380,9 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                         return await ReportResult(requested, action, RejectStart(batch, match.Worker,
                             match.Issue ?? "已有工作进程，请刷新后重试。"), cancellation).ConfigureAwait(false);
                 }
-                else if (selected is null || match.Worker is not { } worker || !selected.Equals(worker.Identity) ||
-                         (action != ProgramAction.Force && (window == 0 || worker.Window?.Handle != window)))
+                else if (closesEmulatorOnly ? match.State != ProcessState.Stopped :
+                         (selected is null || match.Worker is not { } worker || !selected.Equals(worker.Identity) ||
+                         (action != ProgramAction.Force && (window == 0 || worker.Window?.Handle != window))))
                     return await ReportResult(requested, action, new(CommandStatus.IdentityChanged,
                         match.Issue ?? "原进程或窗口已改变，请重新选择。"), cancellation).ConfigureAwait(false);
 
@@ -370,11 +399,19 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     if (emulatorIssue is not null)
                         return await ReportResult(requested, action, new(CommandStatus.Denied, emulatorIssue), cancellation).ConfigureAwait(false);
                 }
+                if (closesPair)
+                {
+                    if (confirmedEmulator is null)
+                        return new(CommandStatus.Denied, "请先确认要一并关闭的模拟器实例。");
+                    if (CheckEmulatorCloseTarget(requested, confirmedEmulator, cancellation) is { } issue)
+                        return await ReportResult(requested, action, new(CommandStatus.IdentityChanged,
+                            $"{issue} 本次未提交关闭请求。"), cancellation).ConfigureAwait(false);
+                }
                 _busy.Add(requested.Id, action);
                 delegated = true;
-                if (!starts)
+                if (!starts && !closesEmulatorOnly)
                 {
-                    result = platform.Control(requested.Definition, action == ProgramAction.Restart ? ProgramAction.Close : action,
+                    result = platform.Control(requested.Definition, action == ProgramAction.Restart || closesPair ? ProgramAction.Close : action,
                         selected!, match.Worker!.Window);
                     if (action != ProgramAction.Activate && result.Status == CommandStatus.Accepted)
                     {
@@ -392,11 +429,17 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 result = await LaunchAsync(requested, launchEntry!, false, cancellation, batch: batch).ConfigureAwait(false);
             else if (action == ProgramAction.StartWithEmulator)
                 result = await LaunchWithEmulatorAsync(requested, launchEntry!, requested.Emulator!, cancellation, batch).ConfigureAwait(false);
+            else if (closesEmulatorOnly)
+                result = await CloseEmulatorAsync(requested, confirmedEmulator!, cancellation).ConfigureAwait(false);
             else if (action != ProgramAction.Activate && result.Status == CommandStatus.Accepted)
             {
                 result = await WaitForExit(requested, selected!, action == ProgramAction.Restart, cancellation).ConfigureAwait(false);
                 if (action == ProgramAction.Restart && result.Status == CommandStatus.Completed)
                     result = await LaunchAsync(requested, launchEntry!, true, cancellation).ConfigureAwait(false);
+                if (closesPair && result.Status == CommandStatus.Completed)
+                    result = await CloseEmulatorAsync(requested, confirmedEmulator!, cancellation).ConfigureAwait(false);
+                else if (closesPair)
+                    result = result with { Reason = $"{result.Reason} 模拟器关闭已跳过。" };
             }
         }
         finally
@@ -408,6 +451,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 {
                     _busy.Remove(requested.Id);
                     _emulatorWaits.Remove(requested.Id);
+                    if (closesPair && result.Status == CommandStatus.Completed) _emulatorSubmitted.Remove(requested.Id);
                     if (selected is not null && _awaitingExit.Remove(selected, out var exited) && !exited)
                         _expectedExits.Remove(selected);
                 }
@@ -415,6 +459,47 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             }
         }
         return await ChangeAsync(() => ReportResult(requested, action, result, cancellation), cancellation).ConfigureAwait(false);
+    }
+
+    private string? CheckEmulatorCloseTarget(ProgramInstallation program, EmulatorCloseTarget confirmed, CancellationToken cancellation)
+    {
+        var (current, issue) = _emulators.ResolveCloseTarget(program, _programs, cancellation);
+        return current is not null && current.Identity.Equals(confirmed.Identity) && current.Window.Handle == confirmed.Window.Handle &&
+            Equals(current.Companion, confirmed.Companion) ? null : issue ?? "原模拟器实例或窗口已改变，请重新核对。";
+    }
+
+    private async Task<CommandResult> CloseEmulatorAsync(ProgramInstallation program, EmulatorCloseTarget confirmed, CancellationToken cancellation)
+    {
+        await _gate.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            var issue = CheckEmulatorCloseTarget(program, confirmed, cancellation);
+            if (issue is not null)
+                return new(CommandStatus.IdentityChanged, $"软件已退出，模拟器关闭已跳过。{issue}");
+            if (Match(program, Scan(false, cancellation)).State != ProcessState.Stopped)
+                return new(CommandStatus.Denied, "无法确认软件仍处于停止状态，模拟器关闭已跳过。");
+
+            cancellation.ThrowIfCancellationRequested();
+            var identity = confirmed.Identity;
+            var target = new ScriptDefinition(program.Id, program.Name, identity.ImagePath, [identity.ImagePath]);
+            var close = platform.Control(target, ProgramAction.Close, identity, confirmed.Window);
+            if (close.Status != CommandStatus.Accepted)
+                return new(close.Status, $"软件已退出，模拟器关闭未获确认。{close.Reason}");
+            await WriteEvent(program, EventSeverity.Information, "已请求正常关闭模拟器", "等待确认原实例的进程退出。", cancellation)
+                .ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+
+        var start = clock.GetTimestamp();
+        do
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (platform.HasProcessExited(confirmed.Identity) &&
+                (confirmed.Companion is null || platform.HasProcessExited(confirmed.Companion)))
+                return new(CommandStatus.Completed, "已确认软件和原模拟器实例退出。");
+            await Task.Delay(TimeSpan.FromMilliseconds(250), clock, cancellation).ConfigureAwait(false);
+        } while (clock.GetElapsedTime(start) < TimeSpan.FromSeconds(8));
+        return new(CommandStatus.TimedOut, "软件已退出，等待模拟器退出超时。请检查模拟器窗口是否需要确认。");
     }
 
     private string? CheckLaunchEntry(ProgramInstallation program, LaunchEntry? confirmed, out LaunchEntry effective)
@@ -617,12 +702,12 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             current.Metadata.Issue != issue && (current.Process == ProcessState.Unknown ||
                 current.Worker is { Window: not null, WindowControlAllowed: not true }))
             await WriteEvent(program, EventSeverity.Warning, "观测或权限受限", issue, cancellation).ConfigureAwait(false);
-        if (resources && current.Worker is not null && (previous?.Worker is null || previous.WorkingSetMiB != current.WorkingSetMiB))
+        if (resources && current.Worker is not null && (previous?.Worker is null || previous.PrivateWorkingSetMiB != current.PrivateWorkingSetMiB))
         {
-            if (current.WorkingSetMiB is null)
-                await WriteEvent(program, EventSeverity.Warning, "工作集读取失败", "", cancellation).ConfigureAwait(false);
-            else if (previous is { Worker: not null, WorkingSetMiB: null })
-                await WriteEvent(program, EventSeverity.Information, "工作集读取恢复", "", cancellation).ConfigureAwait(false);
+            if (current.PrivateWorkingSetMiB is null)
+                await WriteEvent(program, EventSeverity.Warning, "私有工作集读取失败", "", cancellation).ConfigureAwait(false);
+            else if (previous is { Worker: not null, PrivateWorkingSetMiB: null })
+                await WriteEvent(program, EventSeverity.Information, "私有工作集读取恢复", "", cancellation).ConfigureAwait(false);
         }
     }
 
@@ -640,6 +725,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             ProgramAction.Start => "启动软件",
             ProgramAction.StartWithEmulator => "启动模拟器和软件",
             ProgramAction.Close => "正常关闭",
+            ProgramAction.CloseWithEmulator => "关闭软件和模拟器",
             ProgramAction.Restart => "重启软件",
             ProgramAction.Force => "强制结束",
             _ => "打开窗口"

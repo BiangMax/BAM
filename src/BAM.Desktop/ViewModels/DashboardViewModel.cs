@@ -26,7 +26,7 @@ internal sealed partial class DashboardViewModel : ObservableObject
     {
         _data = data;
         _isDetecting = data is LiveDesktopData { Frame: null, DetectionIssue: null };
-        Cards = data.Scripts.Select(script => new ScriptCardViewModel(script)).ToArray();
+        Cards = data.Scripts.OrderBy(CardPriority).Select(script => new ScriptCardViewModel(script)).ToArray();
         RecentEvents = data.Logs.Take(3).ToArray();
         SampleLabel = data.HasResourceSource ? "等待采样" : "暂无采样";
         ChartDetail = data.HasResourceSource ? "等待资源样本" : "接入进程采样后可查看资源曲线";
@@ -43,7 +43,20 @@ internal sealed partial class DashboardViewModel : ObservableObject
     public string DetectionTitle => DetectionIssue is not null ? "未能确认脚本列表" : IsDetecting ? "正在检测脚本" : "尚未添加脚本";
     public string DetectionDescription => DetectionIssue ?? (IsDetecting
         ? "正在读取本地记录并查找已知软件。" : CanManage ? "可自动检测已知软件，或手动添加。" : "当前没有脚本记录。");
-    public bool HasChartSamples => ShowMemory ? History.HasMemory : History.HasCpu;
+    public bool HasChartSamples => _lastFrame?.ResourcesPaused != true && (ShowMemory ? History.HasMemory : History.HasCpu);
+    private (string Title, string Hint) ChartEmptyContent => _lastFrame switch
+    {
+        { ResourcesPaused: true } => ("资源采样已暂停", "可在设置中重新开启资源采样。"),
+        _ when IsDetecting => ("正在检测脚本", "完成检测后会自动开始采样。"),
+        _ when DetectionIssue is not null && !HasScripts => ("暂时无法读取脚本列表", "可在脚本管理中重新检测。"),
+        _ when !HasResourceSource => ("资源监控不可用", "当前会话没有资源数据源。"),
+        _ when !HasScripts => ("还没有可监控的脚本", "添加脚本后即可监控资源占用。"),
+        { ResourceProcessCount: 0, UnconfirmedResourceTargets: 0 } => ("没有运行中的脚本或模拟器", "启动脚本或已绑定的模拟器后，曲线会自动显示。"),
+        { UnconfirmedResourceTargets: > 0 } => ("正在确认监控对象", "确认脚本和已绑定的模拟器后，曲线会自动显示。"),
+        _ => ("等待占用数据", "获取完整的采样后，曲线会自动显示。")
+    };
+    public string ChartEmptyTitle => ChartEmptyContent.Title;
+    public string ChartEmptyHint => ChartEmptyContent.Hint;
     public bool HasEvents => RecentEvents.Count > 0;
     public string ProcessCount
     {
@@ -57,8 +70,7 @@ internal sealed partial class DashboardViewModel : ObservableObject
             return HasResourceSource ? $"{_data.Scripts.Count(x => x.Process == ProcessState.Running)} / {Cards.Count}" : $"— / {Cards.Count}";
         }
     }
-    public string ChartScope => IsDemo ? "演示脚本主进程" : "已确认脚本主进程";
-    public string ResourceHint => HasResourceSource ? ChartScope : "等待接入进程采样";
+    public string ChartScope => IsDemo ? "演示脚本资源" : "脚本及对应模拟器";
     public string ProcessHint => _lastFrame is { UnknownPrograms: > 0 } frame
         ? $"{frame.UnknownPrograms} 个安装待确认" : "软件进程";
     public string TaskCount => _lastFrame?.Programs.Count(program => program.Task == GameTaskState.Running) is > 0 and var count
@@ -69,9 +81,14 @@ internal sealed partial class DashboardViewModel : ObservableObject
             ? "暂无已确认执行中的框架任务" : "暂无可检测任务";
     public string CpuScope => CoverageHint(_lastFrame?.CpuCoverage);
     public string MemoryScope => CoverageHint(_lastFrame?.MemoryCoverage);
-    private string CoverageHint(int? covered) => _lastFrame is { ConfirmedWorkers: > 0 } frame &&
-        (covered != frame.ConfirmedWorkers || frame.UnknownPrograms > 0)
-        ? $"已采样 {covered}/{frame.ConfirmedWorkers} 个确认实例" : ResourceHint;
+    private string CoverageHint(int? covered) => _lastFrame switch
+    {
+        { ResourcesPaused: true } => "资源采样已暂停",
+        { UnconfirmedResourceTargets: > 0 } frame => covered is > 0
+            ? $"部分采样 · {frame.UnconfirmedResourceTargets} 项待确认" : $"{frame.UnconfirmedResourceTargets} 项待确认",
+        { ResourceProcessCount: > 0 } frame when covered < frame.ResourceProcessCount => $"已采样 {covered}/{frame.ResourceProcessCount} 个进程",
+        _ => HasResourceSource ? ChartScope : "等待接入进程采样"
+    };
     public bool ShowCpu
     {
         get => !ShowMemory;
@@ -80,21 +97,31 @@ internal sealed partial class DashboardViewModel : ObservableObject
 
     partial void OnShowMemoryChanged(bool value) => OnPropertyChanged(nameof(ShowCpu));
 
+    private static int CardPriority(ScriptItem script) => script.Installation?.Kind switch
+    {
+        ProgramKind.Maa => 0,
+        ProgramKind.MaaEnd => 1,
+        _ => 2
+    };
+
     private void UpdateLive(LiveDesktopData live)
     {
         DetectionIssue = live.DetectionIssue;
         IsDetecting = live.Frame is null && DetectionIssue is null;
-        if (live.Frame is not { } frame || ReferenceEquals(frame, _lastFrame)) return;
+        if (live.Frame is not { } frame || ReferenceEquals(frame, _lastFrame))
+        {
+            OnPropertyChanged(nameof(ChartEmptyTitle));
+            OnPropertyChanged(nameof(ChartEmptyHint));
+            return;
+        }
         _lastFrame = frame;
         var cards = Cards.ToDictionary(card => card.Script.Installation!.Id);
         var next = new List<ScriptCardViewModel>();
-        for (var index = 0; index < live.Scripts.Count; index++)
+        foreach (var (item, status) in live.Scripts.Zip(frame.Programs).OrderBy(pair => CardPriority(pair.First)))
         {
-            var item = live.Scripts[index];
             if (!cards.TryGetValue(item.Installation!.Id, out var card)) card = new(item);
             card.Script = item;
-            var status = frame.Programs[index];
-            card.Update(new(status.Cpu, status.WorkingSetMiB, status.Uptime));
+            card.Update(new(status.Cpu, status.PrivateWorkingSetMiB, status.Uptime));
             next.Add(card);
         }
         if (!Cards.SequenceEqual(next))
@@ -115,14 +142,19 @@ internal sealed partial class DashboardViewModel : ObservableObject
         OnPropertyChanged(nameof(TaskSummary));
         OnPropertyChanged(nameof(CpuScope));
         OnPropertyChanged(nameof(MemoryScope));
+        OnPropertyChanged(nameof(ChartEmptyTitle));
+        OnPropertyChanged(nameof(ChartEmptyHint));
         var hadData = History.HasData;
-        History.Add(new(frame.ObservedAt, frame.Cpu, frame.WorkingSetMiB, frame.Elapsed));
+        var resolved = frame.UnconfirmedResourceTargets == 0;
+        History.Add(new(frame.ObservedAt,
+            resolved && frame.CpuCoverage == frame.ResourceProcessCount ? frame.Cpu : null,
+            resolved && frame.MemoryCoverage == frame.ResourceProcessCount ? frame.PrivateWorkingSetMiB : null, frame.Elapsed));
         Cpu = Format(frame.Cpu, "0.0", "%");
-        Memory = Format(frame.WorkingSetMiB, "0", " MiB");
-        if (frame.Cpu is not null || frame.WorkingSetMiB is not null) _lastSample = frame.ObservedAt;
+        Memory = Format(frame.PrivateWorkingSetMiB, "0", " MiB");
+        if (frame.Cpu is not null || frame.PrivateWorkingSetMiB is not null) _lastSample = frame.ObservedAt;
         SampleLabel = _lastSample is { } latest ? $"最近有效采样 {latest.ToLocalTime():HH:mm:ss}" : "暂无有效采样";
-        ChartDetail = $"最近 120 秒 · CPU {frame.CpuCoverage}/{frame.ConfirmedWorkers} · 工作集 {frame.MemoryCoverage}/{frame.ConfirmedWorkers}" +
-            (frame.UnknownPrograms > 0 ? $" · {frame.UnknownPrograms} 个安装状态待确认" : "");
+        ChartDetail = $"最近 120 秒 · CPU {frame.CpuCoverage}/{frame.ResourceProcessCount} · 内存 {frame.MemoryCoverage}/{frame.ResourceProcessCount}" +
+            (resolved ? "" : $" · {frame.UnconfirmedResourceTargets} 项待确认");
         if (hadData || History.HasData) ChartRevision++;
     }
 
@@ -144,7 +176,7 @@ internal sealed partial class DashboardViewModel : ObservableObject
         Memory = Format(frame?.MemoryMiB, "0", " MiB");
         if (frame is { Cpu: not null, MemoryMiB: not null }) _lastSample = frame.Time;
         SampleLabel = _lastSample is { } latest ? $"最近采样 {latest.ToLocalTime():HH:mm:ss}" : "暂无采样";
-        ChartDetail = $"最近 120 秒 · {SampleLabel} · CPU {Cpu} · 工作集 {Memory}";
+        ChartDetail = $"最近 120 秒 · {SampleLabel} · CPU {Cpu} · 内存 {Memory}";
         ChartRevision++;
     }
 
@@ -154,20 +186,29 @@ internal sealed partial class DashboardViewModel : ObservableObject
 
 internal sealed partial class ScriptCardViewModel(ScriptItem script) : ObservableObject
 {
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(CpuHint), nameof(MemoryHint), nameof(UptimeHint))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CpuHint), nameof(MemoryHint), nameof(UptimeHint), nameof(EmulatorCpu), nameof(EmulatorMemory), nameof(CanPrimary), nameof(PrimaryLabel))]
     private ScriptItem _script = script;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanPrimary))] private bool _pairEnabled;
+    public string PrimaryLabel => Script.IsPairedStarting ? Script.EmulatorAction : Script.PrimaryAction;
+    public bool CanPrimary => !Script.IsPairedStarting && Script.CanPrimary &&
+        (!PairEnabled || Script.Installation?.Emulator is null || !Script.CanStart || Script.CanStartWithEmulator);
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CpuHint))] private string _cpu = "—";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(MemoryHint))] private string _memory = "—";
+    [ObservableProperty] private string _combinedMemory = "—";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UptimeHint))] private string _uptime = "—";
     private string MissingValueHint => Script.Process == ProcessState.Stopped ? "软件已停止" : "暂无采样";
     public string? CpuHint => Cpu == "—" ? MissingValueHint : null;
     public string? MemoryHint => Memory == "—" ? MissingValueHint : null;
     public string? UptimeHint => Uptime == "—" ? MissingValueHint : null;
+    public string EmulatorCpu => DashboardViewModel.Format(Script.EmulatorUsage?.Cpu, "0.0", "%");
+    public string EmulatorMemory => DashboardViewModel.Format(Script.EmulatorUsage?.PrivateWorkingSetMiB, "0", " MiB");
 
     public void Update(ScriptUsage? usage)
     {
         Cpu = DashboardViewModel.Format(usage?.Cpu, "0.0", "%");
         Memory = DashboardViewModel.Format(usage?.MemoryMiB, "0", " MiB");
+        var scriptMemory = usage?.MemoryMiB ?? (Script.Process == ProcessState.Stopped ? 0d : (double?)null);
+        CombinedMemory = DashboardViewModel.Format(scriptMemory + Script.EmulatorUsage?.PrivateWorkingSetMiB, "0", " MiB");
         Uptime = usage?.Uptime is { } uptime ? $"{(int)uptime.TotalHours:00}:{uptime.Minutes:00}:{uptime.Seconds:00}" : "—";
     }
 }

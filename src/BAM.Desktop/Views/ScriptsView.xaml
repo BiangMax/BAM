@@ -139,6 +139,11 @@
                             <Button Content="正常关闭" IsEnabled="{Binding CanClose}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
                                     AutomationProperties.HelpText="{Binding OperationHint}" Margin="{StaticResource Bam.Gap.Action}"/>
+                            <Button Content="关闭软件和模拟器…" IsEnabled="{Binding CanCloseWithEmulator}"
+                                    Command="{Binding DataContext.CloseScriptWithEmulatorCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                    ToolTip="{Binding CloseWithEmulatorHint}" ToolTipService.ShowOnDisabled="True"
+                                    AutomationProperties.HelpText="{Binding CloseWithEmulatorHint}"
+                                    CommandParameter="{Binding}" Margin="{StaticResource Bam.Gap.Action}"/>
                             <Button Content="重启软件" IsEnabled="{Binding CanRestart}" ToolTip="{Binding OperationHint}" ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.RestartScriptCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" CommandParameter="{Binding}"
                                     Margin="{StaticResource Bam.Gap.Action}"

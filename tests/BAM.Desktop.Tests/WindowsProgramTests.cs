@@ -29,23 +29,27 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
                 using var platform = new WindowsProgramPlatform();
                 var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { new WindowsProgramFiles().ResolveImagePath(executable) };
                 var workers = await Until(() => Task.FromResult(platform.ScanEmulators(paths, Token)),
-                    scan => scan.Complete && scan.Workers.Count == 2);
+                    scan => scan.Complete && scan.Workers.Count == 2 &&
+                        scan.Workers.All(item => item.PrivateWorkingSet > 0) &&
+                        File.Exists(Path.Combine(root.FullName, "fixture-evidence.txt")));
                 var worker = Assert.Single(workers.Workers, item => item.Identity.Pid == owned.Id);
                 var other = Assert.Single(workers.Workers, item => item.Identity.Pid == sibling.Id);
                 Assert.All(workers.Workers, item =>
                 {
-                    Assert.NotNull(item.WorkingSet);
+                    Assert.NotNull(item.PrivateWorkingSet);
                     Assert.NotNull(item.CpuTime);
                     Assert.False(item.CanTerminate);
                     Assert.Null(item.Window);
                 });
+                owned.Refresh();
+                Assert.InRange(worker.PrivateWorkingSet!.Value, 1L, owned.WorkingSet64 - 1);
                 var stale = new ProcessIdentity(worker.Identity.ImagePath, owned.Id, worker.Identity.CreatedAtUtc.AddTicks(-1));
                 var arguments = platform.ReadEmulatorArgumentsBatch([worker.Identity, other.Identity, stale], Token);
                 Assert.Contains("--instance=9", arguments[worker.Identity]!);
                 Assert.Contains("--index=4", arguments[other.Identity]!);
                 Assert.False(arguments.ContainsKey(stale));
                 Assert.Null(platform.ReadEmulatorArguments(stale, Token));
-                output.WriteLine("Verified read-only CPU, working sets, two instance arguments and stale identity rejection.");
+                output.WriteLine("Verified read-only CPU, private working set below total, two instance arguments and stale identity rejection.");
             }
             finally
             {
@@ -127,7 +131,7 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
             {
                 Assert.Equal(CommandStatus.Accepted, (await monitor.ExecuteAsync(program, ProgramAction.Start, null, 0, Token, updated)).Status);
                 var started = await Until(async () => Assert.Single((await monitor.SampleAsync(true, Token)).Programs),
-                    item => item.Worker?.Window is { State: WindowState.Minimized, Responding: true } && item.WorkingSetMiB > 0);
+                    item => item.Worker?.Window is { State: WindowState.Minimized, Responding: true } && item.PrivateWorkingSetMiB > 0);
                 var target = started.Worker!;
                 Assert.False(File.Exists(Path.Combine(working.FullName, "fixture-evidence.txt")));
                 Assert.Equal("updated words", await File.ReadAllTextAsync(Path.Combine(updatedWorking.FullName, "fixture-evidence.txt"), Token));
@@ -217,6 +221,68 @@ public sealed class WindowsProgramTests(ITestOutputHelper output)
             }
             await Until(() => Task.FromResult(platform.Scan(allowed, false, CancellationToken.None)), scan => scan.Workers.Count == 0);
             root.Delete(recursive: true);
+        }
+    }
+
+    [Fact(SkipUnless = nameof(InteractiveFixture), Skip = "Set BAM_PHASE3_FIXTURE=1 in an interactive Windows session.")]
+    public async Task FixtureClosesOnlyTheSelectedEmulatorAfterTheScriptExits()
+    {
+        var root = Directory.CreateTempSubdirectory("Bam paired close ");
+        var files = new WindowsProgramFiles();
+        var suffix = Guid.NewGuid().ToString("N");
+        var executable = Path.Combine(root.FullName, $"BamOwnedScript{suffix}.exe");
+        var emulator = Path.Combine(root.FullName, $"BamOwnedEmulator{suffix}.exe");
+        List<Process> owned = [];
+        try
+        {
+            await Compile(executable);
+            File.Copy(executable, emulator);
+            var catalog = new InstallationCatalog(files);
+            var installation = catalog.Import(executable) with { EmulatorMonitor = new(files.ResolveImagePath(emulator), 4) };
+            var store = new LocalProgramStore(root.FullName);
+            await store.SaveAsync([installation], [], Token);
+            using var platform = new WindowsProgramPlatform();
+            using var monitor = new ProgramMonitor(catalog, platform, store, new LocalProgramEventStore(root.FullName), TimeProvider.System);
+            await monitor.InitializeAsync(Token);
+            var script = Start(executable, "phase3");
+            var device = Start(emulator, "phase3 --index=4");
+            var other = Start(emulator, "phase3 --index=7");
+            var current = await Until(async () => Assert.Single((await monitor.SampleAsync(false, Token)).Programs),
+                item => item.Actions.Contains(ProgramAction.CloseWithEmulator));
+            var target = await Until(() => monitor.PrepareEmulatorCloseAsync(current.Installation, Token), candidate => candidate.Target is not null);
+            Assert.Equal(device.Id, target.Target!.Identity.Pid);
+            var result = await monitor.ExecuteAsync(current.Installation, ProgramAction.CloseWithEmulator,
+                current.Worker!.Identity, current.Worker.Window!.Handle, Token, confirmedEmulator: target.Target);
+            Assert.True(result.Status == CommandStatus.Completed, result.Reason);
+            Assert.True(script.HasExited);
+            Assert.True(device.HasExited);
+            Assert.False(other.HasExited);
+        }
+        finally
+        {
+            foreach (var process in owned)
+            {
+                using (process)
+                {
+                    if (!process.HasExited) process.Kill();
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+            }
+            await Until(() => Task.FromResult(RemoveFixture()), removed => removed);
+        }
+
+        bool RemoveFixture()
+        {
+            try { root.Delete(recursive: true); return true; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return !root.Exists; }
+        }
+
+        Process Start(string path, string arguments)
+        {
+            var directory = root.CreateSubdirectory($"instance-{owned.Count}");
+            var process = Process.Start(new ProcessStartInfo(path, arguments) { WorkingDirectory = directory.FullName })!;
+            owned.Add(process);
+            return process;
         }
     }
 

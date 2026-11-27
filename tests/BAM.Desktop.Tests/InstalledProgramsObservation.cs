@@ -39,7 +39,7 @@ public sealed class InstalledProgramsObservation(ITestOutputHelper output)
                 }
                 output.WriteLine($"{entry.Installation.Kind}: {entry.Metadata.VersionDetail} | icon={icon} | " +
                     $"entry={(entry.Installation.Entry.IsBatch ? "batch" : "exe")} | state={entry.Process} | " +
-                    $"CPU={entry.Cpu:0.00} | WS={entry.WorkingSetMiB:0.0} | uptime={entry.Uptime} | " +
+                    $"CPU={entry.Cpu:0.00} | WS={entry.PrivateWorkingSetMiB:0.0} | uptime={entry.Uptime} | " +
                     $"window={entry.Worker?.Window?.State.ToString() ?? "unavailable"} | " +
                     $"window permission={entry.Worker?.WindowControlAllowed} | issue={entry.Issue}");
             }

@@ -5,6 +5,5 @@
   <ItemGroup>
     <ProjectReference Include="../BAM.Core/BAM.Core.csproj" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 </Project>

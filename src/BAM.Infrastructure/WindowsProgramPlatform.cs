@@ -32,12 +32,24 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
 
     // Scans are serialized by the manager. References are retained only for matched workers.
     public ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation) =>
-        Scan(paths, readResources, observeOnly: false, cancellation);
+        Scan(paths, readResources, readWindows: true, watchScripts: true, cancellation);
 
     public ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
-        Scan(paths, readResources: true, observeOnly: true, cancellation);
+        Scan(paths, readResources: true, readWindows: false, watchScripts: false, cancellation);
 
-    private ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, bool observeOnly, CancellationToken cancellation)
+    public ProcessScan ScanEmulatorWindows(IReadOnlySet<string> paths, CancellationToken cancellation) =>
+        Scan(paths, readResources: false, readWindows: true, watchScripts: false, cancellation);
+
+    public bool HasProcessExited(ProcessIdentity identity)
+    {
+        using var handle = OpenProcess(Query | Synchronize, false, identity.Pid);
+        if (handle.IsInvalid) return Marshal.GetLastPInvokeError() == 87;
+        return WaitForSingleObject(handle, 0) == 0 ||
+            (GetProcessTimes(handle, out var creation, out _, out _, out _) && creation != identity.CreatedAtUtc.ToFileTime());
+    }
+
+    private ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, bool readWindows, bool watchScripts,
+        CancellationToken cancellation)
     {
         var names = paths.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         HashSet<string> unreadable = new(StringComparer.OrdinalIgnoreCase);
@@ -78,13 +90,13 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
                             continue;
                         }
                         if (!IsLive(handle)) continue;
-                        long? memory = readResources ? ReadWorkingSet(handle) : null;
-                        if (observeOnly)
+                        long? memory = readResources ? ReadPrivateWorkingSet(handle) : null;
+                        var controlAllowed = readWindows ? CanControlWindow(handle) : null;
+                        if (!watchScripts)
                         {
-                            if (IsLive(handle)) found.Add(new(identity, cpu, memory, null, null, false));
+                            if (IsLive(handle)) found.Add(new(identity, readResources ? cpu : null, memory, null, controlAllowed, false));
                             continue;
                         }
-                        var controlAllowed = CanControlWindow(handle);
                         using var terminate = OpenProcess(Terminate | Query | Synchronize, false, identity.Pid);
                         var canTerminate = !terminate.IsInvalid && IsLive(handle) &&
                             identity.Equals(ReadIdentity(terminate, identity.Pid, buffer, out _));
@@ -99,17 +111,20 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
             }
         }
 
-        if (observeOnly) return new(complete, unreadable, found, exits);
-
-        if (found.Count > 0)
+        if (readWindows && found.Count > 0)
         {
             var pids = found.Select(worker => worker.Identity.Pid).ToHashSet();
             var windows = new Dictionary<int, ProgramWindow>();
-            EnumWindows((window, _) => AddWindow(window, pids, windows), 0);
+            var ambiguous = watchScripts ? null : new HashSet<int>();
+            var enumerated = EnumWindows((window, _) => AddWindow(window, pids, windows, ambiguous), 0);
+            if (!watchScripts && !enumerated) return new(false, unreadable, found, exits);
             for (var index = 0; index < found.Count; index++)
-                if (windows.TryGetValue(found[index].Identity.Pid, out var window))
+                if (ambiguous?.Contains(found[index].Identity.Pid) != true &&
+                    windows.TryGetValue(found[index].Identity.Pid, out var window))
                     found[index] = found[index] with { Window = window };
         }
+
+        if (!watchScripts) return new(complete, unreadable, found, exits);
 
         foreach (var (identity, handle) in _watched)
         {
@@ -223,14 +238,15 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
         _ => new(CommandStatus.Failed, $"{action}失败（Windows {code}）。")
     };
 
-    private static bool AddWindow(nint handle, HashSet<int> pids, Dictionary<int, ProgramWindow> windows)
+    private static bool AddWindow(nint handle, HashSet<int> pids, Dictionary<int, ProgramWindow> windows, HashSet<int>? ambiguous)
     {
-        if (GetWindowThreadProcessId(handle, out var pid) == 0 || !pids.Contains(pid) || windows.ContainsKey(pid)) return true;
+        if (GetWindowThreadProcessId(handle, out var pid) == 0 || !pids.Contains(pid) ||
+            (ambiguous is null && windows.ContainsKey(pid))) return true;
         if (!IsWindowVisible(handle) || GetWindow(handle, 4) != 0) return true;
         var title = new StringBuilder(513);
         if (GetWindowText(handle, title, title.Capacity) == 0) return true;
-        windows.Add(pid, new(handle, title.ToString(), IsIconic(handle) ? WindowState.Minimized : WindowState.Visible,
-            !IsHungAppWindow(handle)));
+        if (!windows.TryAdd(pid, new(handle, title.ToString(), IsIconic(handle) ? WindowState.Minimized : WindowState.Visible,
+            !IsHungAppWindow(handle)))) ambiguous?.Add(pid);
         return true;
     }
 
@@ -257,10 +273,11 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
         catch (ArgumentException) { return null; }
     }
 
-    private static long? ReadWorkingSet(SafeProcessHandle handle)
+    private static long? ReadPrivateWorkingSet(SafeProcessHandle handle)
     {
-        var counters = new MemoryCounters { Size = (uint)Marshal.SizeOf<MemoryCounters>() };
-        return GetProcessMemoryInfo(handle, ref counters, counters.Size) ? (long)counters.WorkingSet : null;
+        var counters = new MemoryCountersEx2 { Size = (uint)Marshal.SizeOf<MemoryCountersEx2>(), PrivateWorkingSet = nuint.MaxValue };
+        return GetProcessMemoryInfo(handle, ref counters, counters.Size) && counters.PrivateWorkingSet != nuint.MaxValue
+            ? (long)counters.PrivateWorkingSet : null;
     }
 
     private static int? ReadIntegrity(SafeProcessHandle process)
@@ -301,10 +318,12 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MemoryCounters
+    private struct MemoryCountersEx2
     {
         public uint Size, Faults;
         public nuint PeakWorkingSet, WorkingSet, PeakPaged, Paged, PeakNonPaged, NonPaged, Pagefile, PeakPagefile;
+        public nuint PrivateUsage, PrivateWorkingSet;
+        public ulong SharedCommitUsage;
     }
 
     private delegate bool WindowCallback(nint window, nint parameter);
@@ -328,7 +347,7 @@ public sealed partial class WindowsProgramPlatform : IProgramPlatform, IDisposab
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateProcess(SafeProcessHandle handle, uint code);
     [DllImport("psapi.dll")]
-    private static extern bool GetProcessMemoryInfo(SafeProcessHandle process, ref MemoryCounters counters, uint size);
+    private static extern bool GetProcessMemoryInfo(SafeProcessHandle process, ref MemoryCountersEx2 counters, uint size);
     [DllImport("advapi32.dll")]
     private static extern bool OpenProcessToken(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
     [DllImport("advapi32.dll")]

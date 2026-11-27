@@ -29,7 +29,7 @@
             </Grid>
 
             <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Bam.PanelEdge}"
-                    Margin="{StaticResource Bam.Before.Medium}" Padding="0,8,0,0">
+                    Margin="{StaticResource Bam.Before.Small}" Padding="0,8,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -39,9 +39,9 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <UniformGrid Columns="3">
-                        <UniformGrid.Style>
-                            <Style TargetType="UniformGrid">
+                    <Grid>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
                                 <Setter Property="Grid.ColumnSpan" Value="2"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="True">
@@ -49,20 +49,52 @@
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </UniformGrid.Style>
-                        <StackPanel>
-                            <TextBlock Text="CPU" Style="{StaticResource Bam.FieldLabel}"/>
-                            <TextBlock Text="{Binding Cpu}" Style="{StaticResource Bam.Value}" ToolTip="{Binding CpuHint}"/>
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="工作集" Style="{StaticResource Bam.FieldLabel}"/>
-                            <TextBlock Text="{Binding Memory}" Style="{StaticResource Bam.Value}" ToolTip="{Binding MemoryHint}"/>
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="运行时长" Style="{StaticResource Bam.FieldLabel}"/>
-                            <TextBlock Text="{Binding Uptime}" Style="{StaticResource Bam.Value}" ToolTip="{Binding UptimeHint}"/>
-                        </StackPanel>
-                    </UniformGrid>
+                        </Grid.Style>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="1.5*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Column="1" Text="CPU" Style="{StaticResource Bam.FieldLabel}"/>
+                        <TextBlock Grid.Column="2" Text="内存占用" Style="{StaticResource Bam.FieldLabel}" ToolTip="以私有工作集计量。"/>
+                        <TextBlock Grid.Column="3" Text="运行时长" Style="{StaticResource Bam.FieldLabel}"/>
+                        <TextBlock Grid.Row="1" Text="脚本" Style="{StaticResource Bam.Caption}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Cpu}" Style="{StaticResource Bam.Value}" ToolTip="{Binding CpuHint}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Memory}" Style="{StaticResource Bam.Value}" ToolTip="{Binding MemoryHint}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding Uptime}" Style="{StaticResource Bam.Value}" ToolTip="{Binding UptimeHint}"/>
+
+                        <Button Grid.Row="2" Style="{StaticResource Bam.QuietButton}"
+                                HorizontalAlignment="Left" MinHeight="20" Padding="0"
+                                Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                                AutomationProperties.AutomationId="ScriptEmulatorMonitoring" AutomationProperties.Name="{Binding Script.EmulatorUsageLabel}"
+                                ToolTip="{Binding Script.EmulatorUsageHint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsageHint}"
+                                Command="{Binding DataContext.EditEmulatorMonitoringCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                CommandParameter="{Binding Script}">
+                            <TextBlock Text="模拟器" Style="{StaticResource Bam.Caption}"/>
+                        </Button>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding EmulatorCpu}" Style="{StaticResource Bam.Value}" VerticalAlignment="Center"
+                                   Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding EmulatorMemory}" Style="{StaticResource Bam.Value}" VerticalAlignment="Center"
+                                   Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+
+                        <Border Grid.Row="3" Grid.ColumnSpan="4" Background="{DynamicResource Bam.Inset}"
+                                CornerRadius="{StaticResource Bam.Corner.Small}"
+                                Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                        <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Margin="4,0,0,0" Text="内存合计" Style="{StaticResource Bam.Caption}" VerticalAlignment="Center"
+                                   Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Text="{Binding CombinedMemory}" Style="{StaticResource Bam.Value}"
+                                   AutomationProperties.Name="{Binding CombinedMemory, StringFormat='内存合计 {0}'}"
+                                   AutomationProperties.AutomationId="ScriptCombinedMemory"
+                                   ToolTip="脚本与对应模拟器的私有工作集合计。样本不足时显示短横线。"
+                                   Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"/>
+                    </Grid>
 
                     <Grid>
                         <Grid.Style>
@@ -84,13 +116,37 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button Style="{StaticResource Bam.PrimaryButton}" Content="{Binding Script.PrimaryAction}" IsEnabled="{Binding Script.CanPrimary}"
+                        <Button Content="{Binding PrimaryLabel}" IsEnabled="{Binding CanPrimary}"
+                                Style="{StaticResource Bam.PrimaryButton}" AutomationProperties.AutomationId="ScriptPrimaryAction"
                                 Command="{Binding DataContext.PrimaryCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
                                 CommandParameter="{Binding Script}" ToolTipService.ShowOnDisabled="True"
                                 MinHeight="{StaticResource Bam.IconButtonSize}"
                                 ToolTip="{Binding Script.OperationHint}" AutomationProperties.HelpText="{Binding Script.OperationHint}"/>
-                        <local:MenuButton Grid.Column="1" Style="{StaticResource {x:Type Button}}" Width="{StaticResource Bam.IconButtonSize}" MinHeight="{StaticResource Bam.IconButtonSize}"
+                        <Button Grid.Column="1" Content="设置配对" Margin="{StaticResource Bam.Gap.Small}"
+                                MinHeight="{StaticResource Bam.IconButtonSize}"
+                                Visibility="{Binding Script.ShowPairSetup, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                                Command="{Binding DataContext.EditEmulatorStartupCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                CommandParameter="{Binding Script}"/>
+                        <ToggleButton Grid.Column="1" Content="配对启动" Margin="{StaticResource Bam.Gap.Small}"
+                                      MinHeight="{StaticResource Bam.IconButtonSize}" IsChecked="{Binding PairEnabled, Mode=TwoWay}"
+                                      AutomationProperties.AutomationId="ScriptEmulatorAction"
+                                      ToolTip="开启后，点击启动软件会先启动模拟器，再倒计时启动脚本。"
+                                      Visibility="{Binding Script.ShowPairToggle, Converter={StaticResource Bam.VisibleWhenTrue}}">
+                            <ToggleButton.Style>
+                                <Style TargetType="ToggleButton" BasedOn="{StaticResource Bam.ButtonBase}">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource Bam.SuccessSurface}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource Bam.Success}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource Bam.Success}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ToggleButton.Style>
+                        </ToggleButton>
+                        <local:MenuButton Grid.Column="2" Style="{StaticResource {x:Type Button}}" Width="{StaticResource Bam.IconButtonSize}" MinHeight="{StaticResource Bam.IconButtonSize}"
                                           Padding="0" Margin="{StaticResource Bam.Gap.Small}" ToolTip="更多操作"
                                           Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
                                           AutomationProperties.Name="更多脚本操作">
@@ -107,6 +163,12 @@
                                     <MenuItem Header="正常关闭" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanClose, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               Command="{Binding PlacementTarget.Tag.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <MenuItem Header="关闭软件和模拟器…"
+                                              IsEnabled="{Binding PlacementTarget.DataContext.Script.CanCloseWithEmulator, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              ToolTip="{Binding PlacementTarget.DataContext.Script.CloseWithEmulatorHint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              ToolTipService.ShowOnDisabled="True"
+                                              Command="{Binding PlacementTarget.Tag.CloseScriptWithEmulatorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     <MenuItem Header="重启软件" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanRestart, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               Command="{Binding PlacementTarget.Tag.RestartScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
@@ -119,21 +181,6 @@
                     </Grid>
                 </Grid>
             </Border>
-            <Button Style="{StaticResource Bam.QuietButton}" Margin="{StaticResource Bam.Before.Small}" MinHeight="20" Padding="4,0"
-                    Visibility="{Binding Script.ShowEmulatorUsage, Converter={StaticResource Bam.VisibleWhenTrue}}"
-                    AutomationProperties.AutomationId="ScriptEmulatorMonitoring" AutomationProperties.Name="{Binding Script.EmulatorUsageLabel}"
-                    ToolTip="{Binding Script.EmulatorUsageHint}" AutomationProperties.HelpText="{Binding Script.EmulatorUsageHint}"
-                    Command="{Binding DataContext.EditEmulatorMonitoringCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
-                    CommandParameter="{Binding Script}">
-                <TextBlock Text="{Binding Script.EmulatorUsageLabel}" FontSize="12" TextTrimming="CharacterEllipsis"/>
-            </Button>
-            <Button Content="{Binding Script.EmulatorAction}" IsEnabled="{Binding Script.CanUseEmulatorAction}"
-                    AutomationProperties.AutomationId="ScriptEmulatorAction"
-                    Visibility="{Binding Script.ShowEmulatorAction, Converter={StaticResource Bam.VisibleWhenTrue}}"
-                    Command="{Binding DataContext.StartWithEmulatorCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
-                    CommandParameter="{Binding Script}" Margin="{StaticResource Bam.Before.Medium}"
-                    ToolTip="{Binding Script.EmulatorHint}" ToolTipService.ShowOnDisabled="True"
-                    AutomationProperties.HelpText="{Binding Script.EmulatorHint}"/>
         </StackPanel>
     </Border>
 </UserControl>

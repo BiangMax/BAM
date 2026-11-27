@@ -15,6 +15,7 @@ internal sealed partial class ShellViewModel : ObservableObject
 {
     [ObservableProperty] private NavigationItem _selected;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasBatchResult))] private BatchReport? _latestBatchResult;
+    private readonly DashboardViewModel _dashboard;
     private readonly ScriptsViewModel _scripts;
     private readonly LogsViewModel _logs;
     private readonly LiveDesktopData? _live;
@@ -24,6 +25,7 @@ internal sealed partial class ShellViewModel : ObservableObject
         LogsViewModel logs, SettingsViewModel settings)
     {
         IsDemo = data.IsDemo;
+        _dashboard = dashboard;
         _scripts = scripts;
         _logs = logs;
         _settings = settings;
@@ -34,6 +36,7 @@ internal sealed partial class ShellViewModel : ObservableObject
             OnPropertyChanged(nameof(OperationNoticeDetails));
             LatestBatchResult = _live.LatestBatchResult;
             LaunchPairedCommand.NotifyCanExecuteChanged();
+            CloseBatchCommand.NotifyCanExecuteChanged();
         };
         _settings.PropertyChanged += OnSettingsChanged;
         _logs.PropertyChanged += OnLogsChanged;
@@ -124,13 +127,13 @@ internal sealed partial class ShellViewModel : ObservableObject
         editor.ShowDialog();
     }
 
-    private bool CanLaunchPaired() => _live?.Scripts.Any(script => script.CanStartInBatch) == true;
+    private bool CanLaunchPaired() => _live is not null && _dashboard.Cards.Any(card => card.Script.CanStartInBatch);
 
     [RelayCommand(CanExecute = nameof(CanLaunchPaired))]
     private async Task LaunchPaired()
     {
         if (_live is null) return;
-        var requests = _live.Scripts.Where(script => script.CanStartInBatch)
+        var requests = _dashboard.Cards.Select(card => card.Script).Where(script => script.CanStartInBatch)
             .Select(script => (Program: script.Installation!, Entry: script.EffectiveEntry!)).ToArray();
         if (requests.Length == 0) return;
 
@@ -139,7 +142,7 @@ internal sealed partial class ShellViewModel : ObservableObject
             : $"{request.Program.Name} · 等待 {request.Program.Emulator!.WaitSeconds} 秒\n" +
               DescribeLaunch("模拟器", request.Program.Emulator.Entry) + "\n" + DescribeLaunch("软件", request.Entry)));
         const string label = "批量启动";
-        if (await Confirm(label, $"依次启动以下 {requests.Length} 组。配对组先开模拟器，再开软件。" +
+        if (await Confirm(label, $"按总览卡片顺序启动以下 {requests.Length} 组。配对组先开模拟器，再开软件。" +
             $"软件可能按自己的设置自动运行任务。\n{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
             label, scrollable: true))
             await _live.LaunchBatchAsync(requests);
@@ -148,6 +151,37 @@ internal sealed partial class ShellViewModel : ObservableObject
     private static string DescribeLaunch(string label, LaunchEntry entry) =>
         $"{label}　{entry.TargetPath}{(entry.RunAs ? "（请求管理员权限）" : "")}\n" +
         $"工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
+
+    private bool CanCloseBatch() => _live is not null && _dashboard.Cards.Any(card => card.Script.CanCloseInBatch);
+
+    [RelayCommand(CanExecute = nameof(CanCloseBatch))]
+    private async Task CloseBatch()
+    {
+        if (_live is null) return;
+        var scripts = _dashboard.Cards.Select(card => card.Script).Where(script => script.CanCloseInBatch).ToArray();
+        var targets = new List<(ScriptItem Script, EmulatorCloseTarget? Emulator)>();
+        var details = new List<string>();
+        foreach (var script in scripts)
+        {
+            var emulator = script.Installation?.EmulatorMonitor is not null ? await _live.PrepareEmulatorCloseAsync(script) : null;
+            if (script.CanClose || emulator is not null) targets.Add((script, emulator));
+            var detail = emulator is { } target ? $"模拟器 {target.Window.Title}（PID {target.Identity.Pid}）"
+                : script.Installation?.EmulatorMonitor is null ? "仅关闭软件" : "模拟器未确认，跳过模拟器";
+            details.Add($"{script.Name} · {(script.CanClose ? $"软件 PID {script.Identity!.Pid} · " : "软件已停止 · ")}{detail}");
+        }
+        if (targets.Count == 0) return;
+        if (await Confirm("批量关闭", "按卡片顺序正常关闭以下软件及已确认的模拟器。正在执行的任务可能中断。\n\n" +
+            string.Join("\n", details), "批量关闭", scrollable: true))
+        {
+            var report = await _live.CloseBatchAsync(targets);
+            if (report is not null)
+            {
+                var dialog = CreateDialog("批量关闭结果", report, scrollable: true);
+                dialog.CloseButtonText = "关闭";
+                await dialog.ShowDialogAsync();
+            }
+        }
+    }
 
     [RelayCommand]
     private void ShowBatchResult()
@@ -170,21 +204,19 @@ internal sealed partial class ShellViewModel : ObservableObject
         if (_live is null || script is null) return;
         if (script.NeedsRelocation) EditScript(script);
         else if (script.CanActivate) await _live.ExecuteAsync(script, ProgramAction.Activate);
-        else if (script.CanStart) await Launch(script, ProgramAction.Start);
+        else if (script.CanStart)
+        {
+            var paired = script.Installation?.Emulator is not null &&
+                _dashboard.Cards.Any(card => card.Script.Installation?.Id == script.Installation.Id && card.PairEnabled);
+            if (!paired || script.CanStartWithEmulator)
+                await Launch(script, paired ? ProgramAction.StartWithEmulator : ProgramAction.Start);
+        }
     }
 
-    [RelayCommand(AllowConcurrentExecutions = true)]
-    private async Task StartWithEmulator(ScriptItem? script)
+    [RelayCommand]
+    private void EditEmulatorStartup(ScriptItem? script)
     {
-        if (_live is null || script is not { CanUseEmulatorAction: true, Installation: { } program }) return;
-        if (program.Emulator?.Entry is null)
-        {
-            ShowEditor(script, ProgramEditorSection.EmulatorStartup);
-            return;
-        }
-
-        if (script.EffectiveEntry is { } entry)
-            await _live.ExecuteAsync(script, ProgramAction.StartWithEmulator, entry);
+        if (script?.Installation is { SupportsEmulatorStartup: true }) ShowEditor(script, ProgramEditorSection.EmulatorStartup);
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]
@@ -194,6 +226,17 @@ internal sealed partial class ShellViewModel : ObservableObject
         if (_settings.Elevated == false || await Confirm("正常关闭软件",
             $"正常关闭「{script.Name}」（PID {target.Pid}）？\n{target.ImagePath}", "正常关闭"))
             await _live.ExecuteAsync(script, ProgramAction.Close);
+    }
+
+    [RelayCommand]
+    private async Task CloseScriptWithEmulator(ScriptItem? script)
+    {
+        if (_live is null || script is not { CanCloseWithEmulator: true, Identity: { } identity }) return;
+        if (await _live.PrepareEmulatorCloseAsync(script) is not { } target) return;
+        if (await Confirm("关闭软件和模拟器",
+            $"BAM 将先正常关闭「{script.Name}」（PID {identity.Pid}），确认退出后再关闭以下模拟器。正在进行的任务可能中断。\n\n" +
+            $"模拟器　{target.Window.Title}（PID {target.Identity.Pid}）\n{target.Identity.ImagePath}", "关闭两者"))
+            await _live.ExecuteAsync(script, ProgramAction.CloseWithEmulator, confirmedEmulator: target);
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]
@@ -218,6 +261,8 @@ internal sealed partial class ShellViewModel : ObservableObject
         var details = $"启动目标　{entry.TargetPath}\n工作目录　{entry.WorkingDirectory}\n参数　{(entry.Arguments.Length == 0 ? "—" : entry.Arguments)}";
         if (action == ProgramAction.Restart && script.Identity is { } old)
             details = $"将关闭　{old.ImagePath}（PID {old.Pid}）\n" + details;
+        if (action == ProgramAction.StartWithEmulator && program.Emulator is { } emulator)
+            details = DescribeLaunch("模拟器", emulator.Entry) + $"\n等待 {emulator.WaitSeconds} 秒后启动软件。\n\n" + details;
         if (await Confirm(label, $"继续{label[..2]}「{script.Name}」？{notice}\n{PermissionLabel}。Windows 可能请求此目标的权限。\n\n{details}", label))
             await _live.ExecuteAsync(script, action, entry);
     }

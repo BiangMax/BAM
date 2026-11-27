@@ -198,10 +198,10 @@ function Test-ChartAccessibility($Window, [IntPtr] $Handle, [int] $ProcessId) {
         $memory = Wait-Element $Window 'ChartMemory' -ById
         $memory.SetFocus()
         $memory.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
-        [void](Wait-Element $Window '工作集 · MiB')
+        [void](Wait-Element $Window '内存占用 · MiB')
         $plot.SetFocus()
         Wait-For { $plot.Current.HasKeyboardFocus } 'The memory chart did not accept keyboard focus.'
-        [void](& $inspect 0x27 '\d{2}:\d{2}:\d{2} · 工作集 [\d.,]+ MiB$')
+        [void](& $inspect 0x27 '\d{2}:\d{2}:\d{2} · 内存占用 [\d.,]+ MiB$')
         Start-Sleep -Milliseconds 1500
         if ($notifications.Count -ne 0) { throw 'Chart refresh repeated a previous announcement.' }
     } finally { $notifications.Dispose() }
@@ -279,7 +279,7 @@ try {
 
         $memory = Wait-Element $window 'ChartMemory' -ById
         $memory.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
-        [void](Wait-Element $window '工作集 · MiB')
+        [void](Wait-Element $window '内存占用 · MiB')
         Save-Window $primary $handle '07-dashboard-memory'
         $cpu = Wait-Element $window 'ChartCpu' -ById
         $cpu.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
@@ -291,7 +291,7 @@ try {
 
         Select-Item $nav '脚本管理'
         $list = Wait-Element $window 'ManagedScripts' -ById
-        [void](Wait-Element $window '<示例目录>\MaaEnd\MaaEnd.exe')
+        [void](Wait-Element $window '<示例目录>\MAA\MAA.exe')
         Save-Window $primary $handle '04-scripts'
         Select-Item $list 'BBchannel，Fate/Grand Order'
         [void](Wait-Element $window '<示例目录>\BBchannel\BBchannel.exe')
@@ -324,8 +324,8 @@ try {
         [BamSmokeWindow]::Resize($handle, $primary.Id, 920, 730)
         $overview = Wait-Element $window '总览内容'
         $scroll = $overview.GetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern)
-        $first = Wait-Element $window 'MaaEnd'
-        $second = Wait-Element $window 'MAA'
+        $first = Wait-Element $window 'MAA'
+        $second = Wait-Element $window 'MaaEnd'
         Wait-For {
             $left = $first.Current.BoundingRectangle
             $right = $second.Current.BoundingRectangle
@@ -335,7 +335,7 @@ try {
         if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 0) }
 
         [BamSmokeWindow]::Resize($handle, $primary.Id, 800, 540)
-        $narrowScript = Wait-Element $window 'MaaEnd'
+        $narrowScript = Wait-Element $window 'MAA'
         $narrowChart = Wait-Element $window '资源监控'
         $narrowEvents = Wait-Element $window '最近运行事件'
         $manageScripts = Wait-Element $window '管理脚本'
@@ -377,7 +377,7 @@ try {
         [void](Wait-Element $window '尚未添加脚本')
         [void](Wait-Element $window '自动检测')
         [void](Wait-Element $window '手动添加')
-        [void](Wait-Element $window '暂无资源采样')
+        [void](Wait-Element $window '还没有可监控的脚本')
         if ($CheckLogReplay) {
             Select-Item $nav '运行日志'
             [void](Wait-Element $window '2000 条记录')
@@ -420,7 +420,7 @@ try {
         [void](Wait-Element $window 'CPU · %')
         $chartSelection.Select()
         Wait-For { $chartSelection.Current.IsSelected } 'The memory metric did not become selected.'
-        [void](Wait-Element $window '工作集 · MiB')
+        [void](Wait-Element $window '内存占用 · MiB')
         Write-Output 'PASS Chart selection and units through UI Automation.'
         if ($CheckMonitorDpi) {
             $monitorCount = [BamSmokeWindow]::MonitorCount()
@@ -429,7 +429,7 @@ try {
                 [void](Wait-Element $window '尚未添加脚本')
                 $chartOption = Wait-Element $window 'ChartMemory' -ById
                 $chartSelection = $chartOption.GetCurrentPattern($selectionPattern)
-                $unit = Wait-Element $window '工作集 · MiB'
+                $unit = Wait-Element $window '内存占用 · MiB'
                 Wait-For { $chartSelection.Current.IsSelected -and -not $chartOption.Current.IsOffscreen -and
                     $chartOption.Current.BoundingRectangle.Width -gt 0 -and -not $unit.Current.IsOffscreen } 'The selected memory metric or its unit was not visible on the monitor.'
                 $windowDpi = [BamSmokeWindow]::GetDpiForWindow($handle)
@@ -469,18 +469,7 @@ try {
         if ($menuChecked) { Write-Output 'PASS Native System menu in the foreground.' }
         else { Write-Output 'SKIP Native System menu check without the owned window in the foreground.' }
         Select-Item $nav '设置'
-        $valuePattern = [Windows.Automation.ValuePattern]::Pattern
-        $poll = (Wait-Element $window 'MaaGetTaskAddress' -ById).GetCurrentPattern($valuePattern)
-        $report = (Wait-Element $window 'MaaReportStatusAddress' -ById).GetCurrentPattern($valuePattern)
-        if (-not $poll.Current.IsReadOnly -or -not $report.Current.IsReadOnly -or
-            $poll.Current.Value -ne 'http://127.0.0.1:18373/getTask' -or $report.Current.Value -ne 'http://127.0.0.1:18373/reportStatus') {
-            throw 'Loopback addresses were not available before starting the service.'
-        }
-        (Wait-Element $window 'MaaPort' -ById).GetCurrentPattern($valuePattern).SetValue('19373')
-        Wait-For { $poll.Current.Value -eq 'http://127.0.0.1:19373/getTask' -and
-            $report.Current.Value -eq 'http://127.0.0.1:19373/reportStatus' } 'Loopback addresses did not follow the selected port.'
-        [void](Wait-Element $window '已停止。')
-        Write-Output 'PASS Confirmed empty overview, add actions, and loopback addresses with listening off.'
+        if (Find-Element $window 'MaaGetTaskAddress' -ById) { throw 'Removed MAA loopback controls are visible.' }
         if ($CheckMonitorDpi) {
             if ((Toggle-Setting $window 'CloseToTray') -ne 'On') { throw 'Close-to-tray did not enable in the isolated profile.' }
             if (-not $primary.CloseMainWindow()) { throw 'Closing to tray failed.' }
@@ -499,14 +488,14 @@ try {
             Wait-For {
                 # Navigation can rebuild the page and its automation peers.
                 $plot = Find-Element $window '最近 120 秒资源曲线'
-                $plot -and $plot.Current.HelpText -like '*CPU 1/1 · 工作集 1/1' -and
-                    -not (Find-Element $window '暂无资源采样')
+                $plot -and $plot.Current.HelpText -like '*CPU 1/1 · 内存 1/1' -and
+                    -not (Find-Element $window 'ChartEmptyState' -ById)
             } 'The CPU and memory samples did not become visible.'
         }
         & $checkSamples
         $memory = Wait-Element $window 'ChartMemory' -ById
         $memory.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
-        [void](Wait-Element $window '工作集 · MiB')
+        [void](Wait-Element $window '内存占用 · MiB')
         & $checkSamples
         $cpu = Wait-Element $window 'ChartCpu' -ById
         $cpu.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()

@@ -68,7 +68,7 @@
             </StackPanel>
             <StackPanel Margin="{StaticResource Bam.Before.Medium}">
                 <TextBlock Text="模拟器资源监控（可选）" Style="{StaticResource Bam.SectionTitle}"/>
-                <TextBlock Text="选择运行时常驻的实例进程，可直接选择虚拟机进程。同一 EXE 对应多个实例时填写多开器里的实例编号。"
+                <TextBlock Text="选择运行中的实例进程。需要联动关闭时，请选择带实例窗口的 EXE。同一 EXE 对应多个实例时，填写多开器中的实例编号。"
                            Style="{StaticResource Bam.Caption}" TextWrapping="Wrap" Margin="{StaticResource Bam.After.Medium}"/>
                 <TextBlock Text="模拟器 EXE" Style="{StaticResource Bam.FieldLabel}"/>
                 <DockPanel Margin="{StaticResource Bam.After.Medium}">

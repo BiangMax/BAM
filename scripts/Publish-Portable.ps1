@@ -23,7 +23,7 @@ dotnet publish $project -c Release --self-contained true --no-restore --artifact
 
 $runtimeConfig = Join-Path $build 'bin/BAM.Desktop/release_win-x64/BAM.runtimeconfig.json'
 $runtime = (Get-Content -LiteralPath $runtimeConfig -Raw | ConvertFrom-Json).runtimeOptions
-$frameworks = @('Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App', 'Microsoft.AspNetCore.App')
+$frameworks = @('Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App')
 if ($runtime.framework -or $runtime.frameworks -or $runtime.includedFrameworks.Count -ne $frameworks.Count -or
     @(Compare-Object $frameworks @($runtime.includedFrameworks.name)).Count -ne 0) { throw 'Self-contained runtime verification failed.' }
 $payload = @(Get-ChildItem -LiteralPath $package -Force)

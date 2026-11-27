@@ -109,47 +109,6 @@
                     </DockPanel>
                 </Border>
 
-                <Border Style="{StaticResource Bam.SettingsPanel}"
-                        Visibility="{Binding HasMaaLoopback, Converter={StaticResource Bam.VisibleWhenTrue}}">
-                    <StackPanel DataContext="{Binding Loopback}">
-                        <TextBlock Text="MAA 回环连通性" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
-                        <TextBlock Text="适用 MAA 6.23.1。配对标识仅用于关联，只在本次会话内保留。" Style="{StaticResource Bam.Caption}"
-                                   TextWrapping="Wrap" Margin="{StaticResource Bam.After.Medium}"/>
-                        <StackPanel IsEnabled="{Binding CanStart}">
-                            <TextBlock Text="本机端口" Style="{StaticResource Bam.FieldLabel}"/>
-                            <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}" MaxLength="5" AutomationProperties.Name="本机端口"
-                                     AutomationProperties.AutomationId="MaaPort"
-                                     Margin="{StaticResource Bam.After.Medium}"/>
-                            <TextBlock Text="MAA 用户标识（user）" Style="{StaticResource Bam.FieldLabel}"/>
-                            <PasswordBox x:Name="MaaUser" MaxLength="128" AutomationProperties.Name="MAA 用户标识"
-                                         Margin="{StaticResource Bam.After.Medium}"/>
-                            <TextBlock Text="MAA 设备标识（device）" Style="{StaticResource Bam.FieldLabel}"/>
-                            <PasswordBox x:Name="MaaDevice" MaxLength="128" AutomationProperties.Name="MAA 设备标识"/>
-                            <Button Content="启用回环" Click="StartMaaLoopback" Style="{StaticResource Bam.QuietButton}"
-                                    Margin="{StaticResource Bam.Before.Medium}" HorizontalAlignment="Left"/>
-                        </StackPanel>
-                        <TextBlock Text="取任务地址" Style="{StaticResource Bam.FieldLabel}" Margin="{StaticResource Bam.Before.Medium}"/>
-                        <TextBox Text="{Binding GetTaskAddress, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="取任务地址"
-                                 AutomationProperties.AutomationId="MaaGetTaskAddress"
-                                 Margin="{StaticResource Bam.After.Medium}"/>
-                        <TextBlock Text="回报地址" Style="{StaticResource Bam.FieldLabel}"/>
-                        <TextBox Text="{Binding ReportStatusAddress, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="回报地址"
-                                 AutomationProperties.AutomationId="MaaReportStatusAddress"/>
-                        <TextBlock Text="{Binding Status}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
-                                   AutomationProperties.LiveSetting="Polite" Margin="{StaticResource Bam.Before.Medium}"/>
-                        <StackPanel Visibility="{Binding Listening, Converter={StaticResource Bam.VisibleWhenTrue}}">
-                            <TextBlock Text="{Binding PollStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding ProbeStatus}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"
-                                       AutomationProperties.LiveSetting="Polite"/>
-                            <WrapPanel Margin="{StaticResource Bam.Before.Medium}">
-                                <Button Content="发送心跳" Command="{Binding ProbeCommand}" Style="{StaticResource Bam.QuietButton}"
-                                        Margin="{StaticResource Bam.Gap.Right}"/>
-                                <Button Content="停止监听" Command="{Binding StopCommand}" Style="{StaticResource Bam.QuietButton}"/>
-                            </WrapPanel>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
                 <Border Style="{StaticResource Bam.SettingsPanel}" Margin="0">
                     <StackPanel>
                         <TextBlock Text="关于 BAM" Style="{StaticResource Bam.SectionTitle}" Margin="{StaticResource Bam.After.Medium}"

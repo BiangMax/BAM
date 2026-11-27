@@ -18,6 +18,10 @@ Windows 11 x64 用户可从 GitHub Releases 下载已发布的便携压缩包，
 | [MAA](https://github.com/MaaAssistantArknights/MaaAssistantArknights) | 明日方舟 | 通用进程与窗口管理，按 MAA 原设置启动模拟器。 |
 | [BBchannel](https://github.com/xiaoruanmm/FGOautomation-BBchannel-) | Fate/Grand Order | 使用原入口和已确认的工作进程。支持配对启动，正常关闭可能收起到自身托盘。 |
 
+总览按卡片顺序批量启动和关闭。卡片上的「配对启动」开关开启后，主按钮会先启动模拟器，倒计时结束后再启动软件。批量关闭和单组关闭均需要核对目标窗口，已绑定的模拟器会在软件退出后正常关闭。
+
+总览的 CPU 和内存占用涵盖已管理脚本及对应的模拟器。内存以私有工作集计量，单位为 MiB。与任务管理器比较时，可以在「详细信息」按 PID 对照「内存（专用工作集）」列。
+
 ## 技术栈
 
 - C#、.NET 10 LTS、WPF、WPF UI、CommunityToolkit.Mvvm、Microsoft.Extensions.DependencyInjection 和 xUnit v3。
@@ -32,7 +36,7 @@ dotnet build BAM.slnx -c Release --no-restore
 dotnet test BAM.slnx -c Release --no-build --no-restore
 ```
 
-运行桌面程序可执行 `src/BAM.Desktop/bin/Release/net10.0-windows/win-x64/BAM.exe`。框架依赖构建需要对应的 .NET 10 x64 桌面和 ASP.NET Core 共享运行时。BAM 启动后检测已知软件，也可在「脚本管理」中手动选择入口、调整参数或重新定位。原软件可能根据自身设置在启动时运行任务。BAM 设置、安装记录和日志存放于 `%LocalAppData%\BAM`。管理员或权限未知时可以读取现有配置，设置、安装变更和新增日志仅在会话内生效。[构建和夹具验证](docs/PHASE3_REPORT.md)
+运行桌面程序可执行 `src/BAM.Desktop/bin/Release/net10.0-windows/win-x64/BAM.exe`。框架依赖构建需要对应的 .NET 10 x64 桌面运行时。BAM 启动后检测已知软件，也可在「脚本管理」中手动选择入口、调整参数或重新定位。原软件可能根据自身设置在启动时运行任务。BAM 设置、安装记录和日志存放于 `%LocalAppData%\BAM`。管理员或权限未知时可以读取现有配置，设置、安装变更和新增日志仅在会话内生效。[构建和夹具验证](docs/PHASE3_REPORT.md)
 
 ## 项目结构
 

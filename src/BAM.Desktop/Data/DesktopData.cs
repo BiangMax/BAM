@@ -35,6 +35,10 @@ internal sealed record ScriptItem(
     public bool CanStartWithEmulator { get; init; }
     public bool CanActivate { get; init; }
     public bool CanClose { get; init; }
+    public bool CanCloseInBatch => CanClose || (Process == ProcessState.Stopped && Installation?.EmulatorMonitor is not null);
+    public bool CanCloseWithEmulator { get; init; }
+    public string CloseWithEmulatorHint => Installation?.EmulatorMonitor is null ? "请先设置模拟器监控。" :
+        CanCloseWithEmulator ? "确认软件退出后，正常关闭已绑定的模拟器实例。" : OperationHint;
     public bool CanRestart { get; init; }
     public bool CanForce { get; init; }
     public bool RedactDetails { get; init; }
@@ -92,10 +96,11 @@ internal sealed record ScriptItem(
         (program.Kind == ProgramKind.Maa ? CanStart : program.SupportsEmulatorStartup && CanStartWithEmulator && program.Emulator?.Entry is not null);
     public EmulatorResourceUsage? EmulatorUsage { get; init; }
     public PairedStartupProgress? PairedStartup { get; init; }
+    public bool IsPairedStarting => PairedStartup is not null;
     public bool ShowEmulatorUsage => Installation is { Kind: ProgramKind.Maa or ProgramKind.MaaEnd or ProgramKind.BBchannel }
         || EmulatorUsage is not null;
     public string EmulatorUsageLabel => EmulatorUsage is { } usage
-        ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 工作集 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
+        ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 内存占用 {(usage.PrivateWorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
         : "设置模拟器监控";
     public string EmulatorUsageHint => EmulatorUsage switch
     {
@@ -103,8 +108,8 @@ internal sealed record ScriptItem(
         { } usage => usage.Hint,
         _ => "选择此脚本对应的模拟器实例进程。"
     };
-    public bool CanUseEmulatorAction => PairedStartup is null && ShowEmulatorAction &&
-        (Installation?.Emulator?.Entry is null || CanStartWithEmulator);
+    public bool ShowPairToggle => ShowEmulatorAction && Installation?.Emulator is not null && !IsPairedStarting;
+    public bool ShowPairSetup => ShowEmulatorAction && Installation?.Emulator is null;
     public string EmulatorAction => PairedStartup?.Phase switch
     {
         PairedStartupPhase.StartingEmulator => "正在启动模拟器…",
@@ -112,9 +117,6 @@ internal sealed record ScriptItem(
         PairedStartupPhase.StartingScript => "正在启动脚本…",
         _ => Installation?.Emulator?.Entry is null ? "设置模拟器启动" : "启动模拟器和软件"
     };
-    public string EmulatorHint => PairedStartup is not null ? EmulatorAction : Installation?.Emulator is { Entry: not null } setup
-        ? CanStartWithEmulator ? $"先打开选定的模拟器，等待 {setup.WaitSeconds} 秒，再启动软件。" : OperationHint
-        : "为此软件选择对应模拟器实例的快捷方式。";
     public string PrimaryAction => NeedsRelocation ? "重新定位" :
         Identity is not null || Process is ProcessState.Running or ProcessState.Stopping ? "打开窗口" : "启动软件";
     public string OperationHint => Issue ?? (Installation is null ? "演示数据仅供预览。" :

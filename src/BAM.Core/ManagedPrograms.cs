@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace BAM.Core;
 
 public enum ProgramKind { Generic, MaaEnd, Maa, BBchannel }
-public enum ProgramAction { Start, Activate, Close, Restart, Force, StartWithEmulator }
+public enum ProgramAction { Start, Activate, Close, Restart, Force, StartWithEmulator, CloseWithEmulator }
 public enum EventSeverity { Information, Warning, Error }
 
 public sealed record LaunchEntry(string OriginalPath, string TargetPath, string WorkingDirectory,
@@ -29,7 +29,9 @@ public sealed record EmulatorStartup(LaunchEntry Entry, int WaitSeconds)
 
 public sealed record EmulatorMonitoring(string ImagePath, int? InstanceNumber = null, string? WorkerImagePath = null);
 
-public sealed record EmulatorResourceUsage(double? Cpu, double? WorkingSetMiB, string Hint)
+public sealed record EmulatorCloseTarget(ProcessIdentity Identity, ProgramWindow Window, ProcessIdentity? Companion);
+
+public sealed record EmulatorResourceUsage(double? Cpu, double? PrivateWorkingSetMiB, string Hint)
 {
     public DateTimeOffset? SampledAt { get; init; }
 }
@@ -55,7 +57,7 @@ public sealed record ProgramMetadata(string Version, string VersionDetail, byte[
 
 public sealed record ProgramWindow(nint Handle, string Title, WindowState State, bool Responding);
 
-public sealed record WorkerSnapshot(ProcessIdentity Identity, TimeSpan? CpuTime, long? WorkingSet,
+public sealed record WorkerSnapshot(ProcessIdentity Identity, TimeSpan? CpuTime, long? PrivateWorkingSet,
     ProgramWindow? Window, bool? WindowControlAllowed, bool CanTerminate);
 
 public sealed record ProcessScan(bool Complete, IReadOnlySet<string> UnreadableNames,
@@ -65,7 +67,7 @@ public enum PairedStartupPhase { StartingEmulator, Waiting, StartingScript }
 public sealed record PairedStartupProgress(PairedStartupPhase Phase, int? RemainingSeconds = null);
 
 public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMetadata Metadata, ProcessState Process,
-    WorkerSnapshot? Worker, double? Cpu, double? WorkingSetMiB, TimeSpan? Uptime, string? Issue,
+    WorkerSnapshot? Worker, double? Cpu, double? PrivateWorkingSetMiB, TimeSpan? Uptime, string? Issue,
     IReadOnlySet<ProgramAction> Actions, bool LaunchConfirmationTimedOut = false,
     GameTaskState Task = GameTaskState.Unsupported, string? TaskHint = null, EmulatorResourceUsage? EmulatorUsage = null,
     PairedStartupProgress? PairedStartup = null)
@@ -75,8 +77,13 @@ public sealed record ProgramStatus(ProgramInstallation Installation, ProgramMeta
 }
 
 public sealed record ProgramFrame(DateTimeOffset ObservedAt, TimeSpan Elapsed, IReadOnlyList<ProgramStatus> Programs,
-    double? Cpu, double? WorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms,
-    ProgramEventHistory? EventHistory = null);
+    double? Cpu, double? PrivateWorkingSetMiB, int CpuCoverage, int MemoryCoverage, int ConfirmedWorkers, int UnknownPrograms,
+    ProgramEventHistory? EventHistory = null)
+{
+    public int ResourceProcessCount { get; init; }
+    public int UnconfirmedResourceTargets { get; init; }
+    public bool ResourcesPaused { get; init; }
+}
 
 public sealed record ProgramEvent(DateTimeOffset Time, Guid? InstallationId, string Source, EventSeverity Severity,
     string Message, string Detail);
@@ -131,6 +138,9 @@ public interface IProgramPlatform
     ProcessScan Scan(IReadOnlySet<string> paths, bool readResources, CancellationToken cancellation);
     ProcessScan ScanEmulators(IReadOnlySet<string> paths, CancellationToken cancellation) =>
         new(false, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
+    ProcessScan ScanEmulatorWindows(IReadOnlySet<string> paths, CancellationToken cancellation) =>
+        new(false, new HashSet<string>(), [], new Dictionary<ProcessIdentity, uint?>());
+    bool HasProcessExited(ProcessIdentity identity) => false;
     string[]? ReadEmulatorArguments(ProcessIdentity identity, CancellationToken cancellation) => null;
     IReadOnlyDictionary<ProcessIdentity, string[]?> ReadEmulatorArgumentsBatch(IReadOnlyList<ProcessIdentity> identities,
         CancellationToken cancellation) => identities.ToDictionary(identity => identity, identity => ReadEmulatorArguments(identity, cancellation));

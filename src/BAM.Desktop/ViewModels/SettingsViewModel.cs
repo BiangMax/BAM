@@ -26,7 +26,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string? _linkNotice;
 
     public SettingsViewModel(SettingsStore store, DesktopPreferences preferences, string? loadNotice, bool canCollectResources,
-        bool? elevated, MaaLoopbackViewModel? loopback = null)
+        bool? elevated)
     {
         _store = store;
         _loadNotice = loadNotice;
@@ -37,7 +37,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
         _collectResources = preferences.CollectResources;
         CanCollectResources = canCollectResources;
         Elevated = elevated;
-        Loopback = loopback;
         _trayIntroSeen = preferences.TrayIntroSeen;
     }
 
@@ -47,10 +46,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
     public string VersionLabel => $"BAM {ShellViewModel.Version}";
     public bool CanCollectResources { get; }
     public bool? Elevated { get; }
-    public MaaLoopbackViewModel? Loopback { get; }
-    public bool HasMaaLoopback => Loopback is not null;
     public string ResourceDescription => CanCollectResources
-        ? "采集已确认主进程的 CPU 和工作集。暂停后继续观测进程状态。" : "演示模式使用合成曲线。";
+        ? "采集脚本主进程和已配置模拟器的 CPU 与私有工作集。暂停后继续观测进程状态。" : "演示模式使用合成曲线。";
     public bool MarkTrayIntroSeen()
     {
         if (_trayIntroSeen) return false;

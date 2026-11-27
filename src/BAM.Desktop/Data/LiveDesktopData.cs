@@ -139,7 +139,21 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         SetNotice("已移除管理记录。");
     });
 
-    public Task ExecuteAsync(ScriptItem script, ProgramAction action, LaunchEntry? confirmedEntry = null) => Track(async token =>
+    public async Task<EmulatorCloseTarget?> PrepareEmulatorCloseAsync(ScriptItem script)
+    {
+        if (script.Installation is not { } program) return null;
+        EmulatorCloseTarget? confirmed = null;
+        await Track(async token =>
+        {
+            var (target, issue) = await Task.Run(() => monitor.PrepareEmulatorCloseAsync(program, token), token);
+            if (target is null) SetNotice($"{script.Name} · {issue ?? "无法确认模拟器实例。"}");
+            confirmed = target;
+        });
+        return confirmed;
+    }
+
+    public Task ExecuteAsync(ScriptItem script, ProgramAction action, LaunchEntry? confirmedEntry = null,
+        EmulatorCloseTarget? confirmedEmulator = null) => Track(async token =>
     {
         if (script.Installation is not { } program) return;
         var previousWorker = script.Identity ?? Frame?.Programs
@@ -147,7 +161,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         var pending = new LaunchNotice(program, previousWorker, Frame);
         SetNotice($"{script.Name} · 正在处理操作");
         var revision = _noticeRevision;
-        var result = await Task.Run(() => monitor.ExecuteAsync(program, action, script.Identity, script.WindowHandle, token, confirmedEntry), token);
+        var result = await Task.Run(() => monitor.ExecuteAsync(program, action, script.Identity, script.WindowHandle, token,
+            confirmedEntry, confirmedEmulator), token);
         if (revision != _noticeRevision || token.IsCancellationRequested) return;
         var trackLaunch = (result.Status == CommandStatus.Accepted && action is ProgramAction.Start or ProgramAction.Restart or ProgramAction.StartWithEmulator)
             || (result.Status == CommandStatus.Unknown && action is ProgramAction.Start or ProgramAction.Restart);
@@ -169,6 +184,37 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         LatestBatchResult = new(results);
         SetNotice(LatestBatchResult.Summary, details: "打开「批量结果」查看各组的启动状态及原因。");
     });
+
+    public async Task<string?> CloseBatchAsync(IReadOnlyList<(ScriptItem Script, EmulatorCloseTarget? Emulator)> requests)
+    {
+        string? report = null;
+        await Track(async token =>
+        {
+            SetNotice($"正在依次关闭 {requests.Count} 组…");
+            var rows = new List<string>(requests.Count);
+            var completed = 0;
+            foreach (var (script, emulator) in requests)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    var action = emulator is null ? ProgramAction.Close : ProgramAction.CloseWithEmulator;
+                    var result = await Task.Run(() => monitor.ExecuteAsync(script.Installation!, action, script.Identity,
+                        script.WindowHandle, token, confirmedEmulator: emulator), token);
+                    var emulatorNote = emulator is null && script.Installation!.EmulatorMonitor is not null ? " 模拟器未确认，已跳过。" : "";
+                    if (result.Status == CommandStatus.Completed && emulatorNote.Length == 0) completed++;
+                    rows.Add($"{script.Name} · {result.Reason ?? "未能确认关闭结果。"}{emulatorNote}");
+                }
+                catch (Exception error) when (IsExpected(error))
+                {
+                    rows.Add($"{script.Name} · 未能确认关闭结果，请查看运行日志。");
+                }
+            }
+            report = string.Join("\n", rows);
+            SetNotice($"批量关闭 · 已确认 {completed}/{requests.Count} 组", details: report);
+        });
+        return report;
+    }
 
     public Task<ProgramInstallation> ImportAsync(string path) => Task.Run(() => catalog.Import(path), _stop.Token);
     public Task<LaunchEntry> ImportEmulatorAsync(string path) => Task.Run(() => catalog.ImportEmulator(path), _stop.Token);
@@ -265,7 +311,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
                 (RedactDetails ? "" : $" · {window.Title}");
         var actions = status.Actions;
         var available = new[] { (ProgramAction.Start, "启动"), (ProgramAction.Activate, "打开窗口"),
-            (ProgramAction.Close, "正常关闭"), (ProgramAction.Restart, "重启"), (ProgramAction.Force, "强制结束") }
+            (ProgramAction.Close, "正常关闭"), (ProgramAction.CloseWithEmulator, "关闭软件和模拟器"),
+            (ProgramAction.Restart, "重启"), (ProgramAction.Force, "强制结束") }
             .Where(action => actions.Contains(action.Item1)).Select(action => action.Item2).ToArray();
         return new(program.Name, game, status.Metadata.Version, symbol, tone, status.Process, status.Task,
             program.InstallDirectory, entry.WorkingDirectory, entry.Arguments.Length == 0 ? "—" : entry.Arguments,
@@ -283,6 +330,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
             CanStartWithEmulator = actions.Contains(ProgramAction.StartWithEmulator),
             CanActivate = actions.Contains(ProgramAction.Activate),
             CanClose = actions.Contains(ProgramAction.Close),
+            CanCloseWithEmulator = actions.Contains(ProgramAction.CloseWithEmulator),
             CanRestart = actions.Contains(ProgramAction.Restart),
             CanForce = actions.Contains(ProgramAction.Force),
             NeedsRelocation = !status.Metadata.EntryAvailable,

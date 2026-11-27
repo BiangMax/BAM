@@ -46,7 +46,6 @@ public sealed class DesktopLayoutTests
                     VerifyPageLayout();
                     VerifyDashboardFirstScreen();
                     VerifyChartEmptyState();
-                    VerifyLoopbackAddresses();
                     VerifyProgramEditorInheritance();
                     VerifyPairedCountdownButton();
                     VerifyLogsAtCapacity();
@@ -114,24 +113,25 @@ public sealed class DesktopLayoutTests
         var model = new ScriptCardViewModel(item);
         var card = new ScriptCard { DataContext = model };
         Layout(card, 260, 380);
-        var button = Assert.Single(FindAll<Button>(card), control => AutomationProperties.GetAutomationId(control) == "ScriptEmulatorAction");
-        Assert.True(button.IsEnabled);
-        Assert.True(button.Focusable);
-        Assert.True(button.IsTabStop);
-        var peer = Assert.IsAssignableFrom<ButtonAutomationPeer>(FrameworkElementAutomationPeer.CreatePeerForElement(button));
-        Assert.Equal("启动模拟器和软件", peer.GetName());
-        Assert.Equal(item.EmulatorHint, peer.GetHelpText());
+        var toggle = Assert.Single(FindAll<ToggleButton>(card), control => AutomationProperties.GetAutomationId(control) == "ScriptEmulatorAction");
+        var button = Assert.Single(FindAll<Button>(card), control => AutomationProperties.GetAutomationId(control) == "ScriptPrimaryAction");
+        Assert.False(toggle.IsChecked);
+        toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+        Assert.True(model.PairEnabled);
+        Assert.Equal("启动软件", button.Content);
+        Assert.Equal(((SolidColorBrush)card.FindResource("Bam.Success")).Color, ((SolidColorBrush)toggle.BorderBrush).Color);
         model.Script = item with { Process = ProcessState.Starting, CanStartWithEmulator = false,
             PairedStartup = new(PairedStartupPhase.Waiting, 20) };
         Assert.Equal("20 秒后启动脚本", button.Content);
-        Assert.Equal("20 秒后启动脚本", peer.GetName());
         Assert.False(button.IsEnabled);
+        Assert.Equal(Visibility.Collapsed, toggle.Visibility);
         model.Script = model.Script with { PairedStartup = new(PairedStartupPhase.Waiting, 1) };
         Assert.Equal("1 秒后启动脚本", button.Content);
         model.Script = model.Script with { PairedStartup = new(PairedStartupPhase.StartingScript) };
         Assert.Equal("正在启动脚本…", button.Content);
         model.Script = model.Script with { PairedStartup = null, Process = ProcessState.Running };
-        Assert.Equal("启动模拟器和软件", button.Content);
+        Assert.Equal("打开窗口", button.Content);
+        Assert.True(toggle.IsChecked);
     }
 
     private static void VerifyPageLayout()
@@ -200,23 +200,41 @@ public sealed class DesktopLayoutTests
         var scroll = Assert.IsType<ScrollViewer>(dashboard.FindName("OverviewScroll"));
         var preview = Assert.IsType<Border>(dashboard.FindName("EventPreview"));
 
-        Layout(dashboard, 892, 665);
+        Layout(dashboard, 888, 664);
         Assert.Equal(0, scroll.ScrollableHeight);
         var cards = FindAll<ScriptCard>(dashboard).ToArray();
         Assert.Equal(3, cards.Length);
+        Assert.Equal(new[] { "MAA", "MaaEnd", "BBchannel" }, cards.Select(card => Assert.IsType<ScriptCardViewModel>(card.DataContext).Script.Name));
         foreach (var card in cards)
         {
             var monitoring = Assert.Single(FindAll<Button>(card), button =>
                 AutomationProperties.GetAutomationId(button) == "ScriptEmulatorMonitoring");
             Assert.Equal(Visibility.Visible, monitoring.Visibility);
-            Assert.Contains("工作集 2000 MiB", AutomationProperties.GetName(monitoring));
+            Assert.Contains("内存占用 2000 MiB", AutomationProperties.GetName(monitoring));
             Assert.Equal($"夹具占用\n最近采样 {DateTimeOffset.UnixEpoch.ToLocalTime():HH:mm:ss}", AutomationProperties.GetHelpText(monitoring));
         }
-        var maa = Assert.IsType<ScriptCardViewModel>(cards[1].DataContext).Script;
+        var maaCard = Assert.IsType<ScriptCardViewModel>(cards[0].DataContext);
+        var maa = maaCard.Script;
         Assert.False(maa.ShowEmulatorAction);
         Assert.True((maa with { CanStart = true, EffectiveEntry = entry }).CanStartInBatch);
         Assert.False((maa with { CanStartWithEmulator = true, EffectiveEntry = entry }).CanStartInBatch);
-        AssertPreviewFits(665);
+        var total = Assert.Single(FindAll<TextBlock>(cards[0]), label => AutomationProperties.GetAutomationId(label) == "ScriptCombinedMemory");
+        maaCard.Update(new(7.6, 407.4, TimeSpan.FromSeconds(30)));
+        Assert.Equal("2407 MiB", total.Text);
+        Assert.Equal("内存合计 2407 MiB", AutomationProperties.GetName(total));
+        maaCard.Update(null);
+        Assert.Equal("—", total.Text);
+        maaCard.Script = maa with { Process = ProcessState.Stopped };
+        maaCard.Update(null);
+        Assert.Equal("2000 MiB", total.Text);
+        maaCard.Script = maa with { EmulatorUsage = new(null, null, "资源采样已暂停。") };
+        maaCard.Update(new(7.6, 407.4, TimeSpan.FromSeconds(30)));
+        Assert.Equal("—", total.Text);
+        AssertPreviewFits(664);
+
+        Layout(dashboard, 864, 625);
+        Assert.Equal(0, scroll.ScrollableHeight);
+        AssertPreviewFits(625);
 
         Layout(dashboard, 736, 460);
         Assert.True(scroll.ScrollableHeight > 0);
@@ -254,12 +272,15 @@ public sealed class DesktopLayoutTests
         var chart = Assert.IsType<ResourceChart>(view.FindName("ResourcePlot"));
         Layout(view, 900, 650);
         Assert.Equal(Visibility.Visible, empty.Visibility);
+        Assert.Equal(Visibility.Collapsed, chart.Visibility);
+        Assert.Contains(FindAll<TextBlock>(empty), text => text.Text == "还没有可监控的脚本");
         Assert.False(empty.IsHitTestVisible);
         Assert.False(chart.Focusable);
 
         var start = DateTimeOffset.UnixEpoch;
         model.Refresh(start.AddSeconds(1));
         Assert.Equal(Visibility.Collapsed, empty.Visibility);
+        Assert.Equal(Visibility.Visible, chart.Visibility);
         Assert.True(chart.Focusable);
         Assert.Equal($"{0d:0.0}%", model.Cpu);
         model.ShowMemory = true;
@@ -273,27 +294,6 @@ public sealed class DesktopLayoutTests
         model.ShowMemory = true;
         model.Refresh(start.AddSeconds(123));
         Assert.Equal(Visibility.Visible, empty.Visibility);
-    }
-
-    private static void VerifyLoopbackAddresses()
-    {
-        var host = new LayoutLoopbackHost();
-        var model = new MaaLoopbackViewModel(host, TimeProvider.System, CancellationToken.None);
-        var view = new SettingsView { DataContext = new SettingsViewModel(new(true), new(), null, true, false, model) };
-        Layout(view, 730, 700);
-        var addresses = FindAll<TextBox>(view).Where(box => box.IsReadOnly).ToArray();
-        Assert.Collection(addresses,
-            box => Assert.Equal("http://127.0.0.1:18373/getTask", box.Text),
-            box => Assert.Equal("http://127.0.0.1:18373/reportStatus", box.Text));
-        model.PortText = "99999";
-        Assert.All(addresses, box => Assert.Empty(box.Text));
-        model.PortText = "19373";
-        Assert.Equal("http://127.0.0.1:19373/reportStatus", addresses[1].Text);
-        Assert.True(model.StartAsync("fixture-user", "fixture-device").IsCompletedSuccessfully);
-        Assert.Equal(19373, host.RequestedPort);
-        Assert.Equal("http://127.0.0.1:19374/getTask", addresses[0].Text);
-        Assert.True(model.ShutdownAsync().IsCompletedSuccessfully);
-        Assert.Equal("http://127.0.0.1:19373/getTask", addresses[0].Text);
     }
 
     private static void VerifyProgramEditorInheritance()
@@ -325,19 +325,6 @@ public sealed class DesktopLayoutTests
             Assert.Equal("--current", arguments.Text);
         }
         finally { editor.Close(); }
-    }
-
-    private sealed class LayoutLoopbackHost : IMaaLoopbackHost
-    {
-        public int RequestedPort { get; private set; }
-
-        public Task<int> StartAsync(int port, IMaaHeartbeatSession session, CancellationToken cancellation)
-        {
-            RequestedPort = port;
-            return Task.FromResult(port + 1);
-        }
-
-        public Task StopAsync(CancellationToken cancellation) => Task.CompletedTask;
     }
 
     private static void Layout(FrameworkElement element, int width, int height)

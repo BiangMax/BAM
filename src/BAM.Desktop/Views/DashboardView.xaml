@@ -13,13 +13,13 @@
         <ScrollViewer x:Name="OverviewScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       AutomationProperties.Name="总览内容">
             <StackPanel>
-                <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                <DockPanel Margin="{StaticResource Bam.After.Small}">
                     <TextBlock DockPanel.Dock="Right" Text="{Binding SampleLabel}" Style="{StaticResource Bam.Muted}"
                            VerticalAlignment="Center"/>
                     <TextBlock Text="总览" Style="{StaticResource Bam.PageTitle}" AutomationProperties.HeadingLevel="Level1"/>
                 </DockPanel>
 
-                <local:ResponsivePanel ItemWidth="176" Margin="{StaticResource Bam.After.Heading}" AutomationProperties.Name="摘要">
+                <local:ResponsivePanel ItemWidth="176" Margin="{StaticResource Bam.After.Medium}" AutomationProperties.Name="摘要">
                     <local:ResponsivePanel.Style>
                         <Style TargetType="local:ResponsivePanel">
                             <Setter Property="MaxColumns" Value="4"/>
@@ -32,8 +32,8 @@
                     </local:ResponsivePanel.Style>
                     <local:MetricTile Label="已启动 / 已管理" Symbol="Apps24" Value="{Binding ProcessCount}" Detail="{Binding ProcessHint}"/>
                     <local:MetricTile Label="任务观测" Symbol="Target24" Value="{Binding TaskCount}" Detail="{Binding TaskSummary}"/>
-                    <local:MetricTile Label="脚本 CPU" Symbol="TopSpeed24" Value="{Binding Cpu}" Detail="{Binding CpuScope}"/>
-                    <local:MetricTile Label="工作集内存" Symbol="Database24" Value="{Binding Memory}" Detail="{Binding MemoryScope}"/>
+                    <local:MetricTile Label="CPU占用" Symbol="TopSpeed24" Value="{Binding Cpu}" Detail="{Binding CpuScope}"/>
+                    <local:MetricTile Label="内存占用" Symbol="Database24" Value="{Binding Memory}" Detail="{Binding MemoryScope}"/>
                 </local:ResponsivePanel>
 
                 <StackPanel KeyboardNavigation.TabNavigation="Local">
@@ -42,9 +42,13 @@
                             <Button Style="{StaticResource Bam.SectionLink}" Content="批量启动" Margin="{StaticResource Bam.Gap.Right}"
                                     Visibility="{Binding CanManage, Converter={StaticResource Bam.VisibleWhenTrue}}"
                                     AutomationProperties.AutomationId="LaunchPaired"
-                                    ToolTip="依次启动已配对的空闲脚本。MAA 可按原设置单独启动。"
+                                    ToolTip="按卡片顺序依次启动可用的脚本。MAA 按原设置启动。"
                                     ToolTipService.ShowOnDisabled="True"
                                     Command="{Binding DataContext.LaunchPairedCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
+                            <Button Style="{StaticResource Bam.SectionLink}" Content="批量关闭" Margin="{StaticResource Bam.Gap.Right}"
+                                    Visibility="{Binding CanManage, Converter={StaticResource Bam.VisibleWhenTrue}}"
+                                    AutomationProperties.AutomationId="CloseBatch"
+                                    Command="{Binding DataContext.CloseBatchCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
                             <Button Style="{StaticResource Bam.SectionLink}" Content="管理脚本"
                                     Command="{Binding DataContext.OpenScriptsCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"/>
                         </StackPanel>
@@ -111,7 +115,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Grid Grid.Row="1" Margin="{StaticResource Bam.Before.Medium}">
+        <Grid Grid.Row="1" Margin="{StaticResource Bam.Before.Small}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*"/>
                 <ColumnDefinition Width="{StaticResource Bam.ColumnGutter}"/>
@@ -134,13 +138,16 @@
                     <Grid Height="80">
                         <local:ResourceChart x:Name="ResourcePlot" History="{Binding History}" Revision="{Binding ChartRevision}"
                                                  ShowMemory="{Binding ShowMemory}" Focusable="{Binding HasChartSamples}"
+                                                 Visibility="{Binding HasChartSamples, Converter={StaticResource Bam.VisibleWhenTrue}}"
                                                  FocusVisualStyle="{StaticResource Bam.FocusVisual}"
                                                  AxisBrush="{DynamicResource Bam.TextMuted}" GridBrush="{DynamicResource Bam.ChartGrid}"
                                                  CpuBrush="{DynamicResource Bam.PrimaryLight}" MemoryBrush="{DynamicResource Bam.Memory}"
                                                  AutomationProperties.Name="最近 120 秒资源曲线" AutomationProperties.HelpText="{Binding ChartDetail}"
                                                  KeyboardNavigation.TabNavigation="Local"/>
-                        <Border x:Name="ChartEmptyState" Background="{DynamicResource Bam.Surface}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Padding="{StaticResource Bam.PanelPadding}" CornerRadius="{StaticResource Bam.Corner.Control}" IsHitTestVisible="False">
+                        <Border x:Name="ChartEmptyState" Background="{DynamicResource Bam.Inset}" BorderBrush="{DynamicResource Bam.PanelEdge}"
+                                BorderThickness="{StaticResource Bam.BorderWidth}" Padding="{StaticResource Bam.DensePanelPadding}"
+                                CornerRadius="{StaticResource Bam.Corner.Control}" IsHitTestVisible="False"
+                                AutomationProperties.AutomationId="ChartEmptyState" AutomationProperties.LiveSetting="Polite">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Style.Triggers>
@@ -150,16 +157,34 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <TextBlock Text="暂无资源采样" Style="{StaticResource Bam.Caption}"/>
+                            <DockPanel VerticalAlignment="Center">
+                                <Border DockPanel.Dock="Left" Width="36" Height="36" Margin="{StaticResource Bam.Gap.Right}"
+                                        Background="{DynamicResource Bam.AccentSurface}" CornerRadius="{StaticResource Bam.Corner.Control}">
+                                    <ui:SymbolIcon Symbol="TopSpeed24" FontSize="21" HorizontalAlignment="Center" Foreground="{DynamicResource Bam.PrimaryLight}"/>
+                                </Border>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ChartEmptyTitle}" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
+                                    <TextBlock Text="{Binding ChartEmptyHint}" Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
                         </Border>
                     </Grid>
                     <DockPanel LastChildFill="False">
-                        <TextBlock Style="{StaticResource Bam.Muted}" TextWrapping="Wrap"
-                                   Text="{Binding Inspection, ElementName=ResourcePlot, TargetNullValue='最近 120 秒'}"/>
+                        <TextBlock TextWrapping="Wrap" Text="{Binding Inspection, ElementName=ResourcePlot, TargetNullValue='最近 120 秒'}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Bam.Muted}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasChartSamples}" Value="False">
+                                            <Setter Property="Visibility" Value="Hidden"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <TextBlock DockPanel.Dock="Right" Margin="{StaticResource Bam.Gap.Left}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource Bam.Muted}">
-                                    <Setter Property="Text" Value="工作集 · MiB"/>
+                                    <Setter Property="Text" Value="内存占用 · MiB"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding ShowMemory}" Value="False">
                                             <Setter Property="Text" Value="CPU · %"/>

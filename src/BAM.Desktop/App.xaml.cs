@@ -16,7 +16,6 @@ public partial class App : Application
     private ServiceProvider? _services;
     private SettingsStore? _settingsStore;
     private LiveDesktopData? _live;
-    private MaaLoopbackViewModel? _maaLoopback;
     private Task? _drain;
     private readonly CancellationTokenSource _lifetime = new();
 
@@ -88,7 +87,6 @@ public partial class App : Application
             services.AddSingleton(TimeProvider.System);
             services.AddSingleton<InstallationCatalog>();
             services.AddSingleton<ProgramMonitor>();
-            _maaLoopback = new(new MaaLoopbackHost(), TimeProvider.System, cancellation);
             if (e.Args.Contains("--observe-maaend-tasks", StringComparer.Ordinal))
             {
                 services.AddSingleton<ITaskLogSource, WindowsTaskLogSource>();
@@ -99,7 +97,7 @@ public partial class App : Application
         if (demo is null && sessionOnly)
             notice = string.Join(" ", new[] { notice, "当前权限下，设置、安装修改和新增日志仅保留在本次会话。" }
                 .Where(value => value is not null));
-        services.AddSingleton(new SettingsViewModel(_settingsStore, preferences, notice, demo is null, elevated, _maaLoopback));
+        services.AddSingleton(new SettingsViewModel(_settingsStore, preferences, notice, demo is null, elevated));
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<ScriptsViewModel>();
         services.AddSingleton<LogsViewModel>();
@@ -149,7 +147,7 @@ public partial class App : Application
     {
         _lifetime.Cancel();
         return _drain ??= Task.WhenAll(_live?.StopAsync() ?? Task.CompletedTask,
-            _settingsStore?.FlushAsync() ?? Task.CompletedTask, _maaLoopback?.ShutdownAsync() ?? Task.CompletedTask);
+            _settingsStore?.FlushAsync() ?? Task.CompletedTask);
     }
 
     private Task PrepareExitAsync() => WaitForShutdownAsync(DrainAsync(), TimeSpan.FromSeconds(3));
