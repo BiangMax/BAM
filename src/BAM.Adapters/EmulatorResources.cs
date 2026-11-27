@@ -15,7 +15,7 @@ internal sealed class EmulatorResources(IProgramPlatform platform, TimeProvider 
     private long? _lookupAt;
 
     public IReadOnlyDictionary<Guid, EmulatorResourceUsage> Sample(IReadOnlyList<ProgramInstallation> programs, bool readResources,
-        long stamp, CancellationToken cancellation)
+        long stamp, DateTimeOffset observedAt, CancellationToken cancellation)
     {
         var configured = programs.Where(program => program.EmulatorMonitor is not null).ToArray();
         var result = new Dictionary<Guid, EmulatorResourceUsage>();
@@ -79,7 +79,10 @@ internal sealed class EmulatorResources(IProgramPlatform platform, TimeProvider 
             var workers = matched.Select(match => match.Worker!).ToArray();
             double? usage = workers.All(worker => cpu.ContainsKey(worker.Identity)) ? workers.Sum(worker => cpu[worker.Identity]) : null;
             double? memory = workers.All(worker => worker.WorkingSet is not null) ? workers.Sum(worker => worker.WorkingSet!.Value) / 1048576d : null;
-            result[group.Key] = new(usage, memory, $"已确认 {workers.Length} 个所选模拟器进程。工作集为这些进程的合计。");
+            result[group.Key] = new(usage, memory, $"已确认 {workers.Length} 个所选模拟器进程。工作集为这些进程的合计。")
+            {
+                SampledAt = usage is not null || memory is not null ? observedAt : null
+            };
         }
         return result;
     }

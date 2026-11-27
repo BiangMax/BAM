@@ -97,7 +97,12 @@ internal sealed record ScriptItem(
     public string EmulatorUsageLabel => EmulatorUsage is { } usage
         ? $"模拟器　CPU {(usage.Cpu is { } cpu ? $"{cpu:0.0}%" : "—")} · 工作集 {(usage.WorkingSetMiB is { } memory ? $"{memory:0} MiB" : "—")}"
         : "设置模拟器监控";
-    public string EmulatorUsageHint => EmulatorUsage?.Hint ?? "选择此脚本对应的模拟器实例进程。";
+    public string EmulatorUsageHint => EmulatorUsage switch
+    {
+        { SampledAt: { } sampledAt } usage => $"{usage.Hint}\n最近采样 {sampledAt.ToLocalTime():HH:mm:ss}",
+        { } usage => usage.Hint,
+        _ => "选择此脚本对应的模拟器实例进程。"
+    };
     public bool CanUseEmulatorAction => PairedStartup is null && ShowEmulatorAction &&
         (Installation?.Emulator?.Entry is null || CanStartWithEmulator);
     public string EmulatorAction => PairedStartup?.Phase switch

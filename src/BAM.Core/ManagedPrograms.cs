@@ -29,7 +29,10 @@ public sealed record EmulatorStartup(LaunchEntry Entry, int WaitSeconds)
 
 public sealed record EmulatorMonitoring(string ImagePath, int? InstanceNumber = null, string? WorkerImagePath = null);
 
-public sealed record EmulatorResourceUsage(double? Cpu, double? WorkingSetMiB, string Hint);
+public sealed record EmulatorResourceUsage(double? Cpu, double? WorkingSetMiB, string Hint)
+{
+    public DateTimeOffset? SampledAt { get; init; }
+}
 
 public sealed record ProgramInstallation(Guid Id, string Name, ProgramKind Kind, LaunchEntry Entry,
     string InstallDirectory, string[] WorkerPaths)

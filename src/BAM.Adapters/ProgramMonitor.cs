@@ -148,7 +148,7 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
             bool refreshMetadata = _metadataAt is null || clock.GetElapsedTime(_metadataAt.Value, stamp) >= TimeSpan.FromSeconds(30);
             if (refreshMetadata) _metadataAt = stamp;
             var scan = Scan(resources, cancellation);
-            var emulatorUsage = _emulators.Sample(_programs, resources, stamp, cancellation);
+            var emulatorUsage = _emulators.Sample(_programs, resources, stamp, now, cancellation);
             List<ProgramStatus> statuses = [];
             Dictionary<ProcessIdentity, (long Time, TimeSpan Cpu)> nextCpu = [];
             foreach (var program in _programs)

@@ -758,16 +758,21 @@ public sealed class ProgramMonitorTests
         rig.Clock.Tick();
         rig.Platform.EmulatorWorkers = [first with { CpuTime = TimeSpan.FromSeconds(.1) },
             second with { CpuTime = TimeSpan.FromSeconds(.2) }, third with { CpuTime = TimeSpan.FromSeconds(.3) }];
-        var measured = (await rig.Monitor.SampleAsync(true, Token)).Programs.Select(item => item.EmulatorUsage!).ToArray();
+        var sample = await rig.Monitor.SampleAsync(true, Token);
+        var measured = sample.Programs.Select(item => item.EmulatorUsage!).ToArray();
         Assert.Collection(measured,
             usage => Verify(usage, 192, 10), usage => Verify(usage, 256, 20), usage => Verify(usage, 384, 30));
+        Assert.All(measured, usage => Assert.Equal(sample.ObservedAt, usage.SampledAt));
 
         rig.Platform.EmulatorWorkers = [first, second];
         var afterExit = (await rig.Monitor.SampleAsync(true, Token)).Programs.Select(item => item.EmulatorUsage!).ToArray();
         Assert.Equal(192, afterExit[0].WorkingSetMiB);
         Assert.Equal(256, afterExit[1].WorkingSetMiB);
         Assert.Null(afterExit[2].WorkingSetMiB);
+        Assert.Null(afterExit[2].SampledAt);
         Assert.Contains("没有与配置编号匹配", afterExit[2].Hint);
+        var paused = await rig.Monitor.SampleAsync(false, Token);
+        Assert.All(paused.Programs, item => Assert.Null(item.EmulatorUsage!.SampledAt));
         Assert.Empty(rig.Platform.Submitted);
         Assert.Empty(rig.Platform.Controls);
 

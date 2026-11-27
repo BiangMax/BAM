@@ -33,7 +33,7 @@ if (-not $packages) { $packages = ((dotnet nuget locals global-packages --list) 
 $notices = New-Item -Path (Join-Path $package 'THIRD-PARTY') -ItemType Directory
 Copy-Item -LiteralPath (Join-Path $root 'docs/releases/THIRD-PARTY-MIT.txt') -Destination $notices.FullName
 $readme = Get-Content -LiteralPath (Join-Path $root "docs/releases/v$version.md") -Raw
-Set-Content -LiteralPath (Join-Path $package '使用说明.txt') -Value ($readme -replace '(?m)^# ', '' -replace '\x60', '').TrimEnd() -Encoding utf8
+Set-Content -LiteralPath (Join-Path $package '使用说明.txt') -Value ($readme -replace '(?m)^#{1,6} ', '' -replace '\x60', '').TrimEnd() -Encoding utf8
 foreach ($framework in $runtime.includedFrameworks) {
     $path = Join-Path $packages ("{0}.runtime.win-x64/{1}" -f $framework.name.ToLowerInvariant(), $framework.version)
     $target = New-Item -Path (Join-Path $notices.FullName $framework.name) -ItemType Directory

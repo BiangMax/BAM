@@ -187,7 +187,7 @@ public sealed class DesktopLayoutTests
                 ProcessState.Running, GameTaskState.Unsupported, "", "", "", "")
             {
                 CanActivate = true,
-                EmulatorUsage = new(5.0, 2000, "夹具占用"),
+                EmulatorUsage = new(5.0, 2000, "夹具占用") { SampledAt = DateTimeOffset.UnixEpoch },
                 Installation = new(Guid.NewGuid(), name, kinds[index], entry, "fixture", [])
                 {
                     Emulator = index == 1 ? null : new(entry, 30)
@@ -210,6 +210,7 @@ public sealed class DesktopLayoutTests
                 AutomationProperties.GetAutomationId(button) == "ScriptEmulatorMonitoring");
             Assert.Equal(Visibility.Visible, monitoring.Visibility);
             Assert.Contains("工作集 2000 MiB", AutomationProperties.GetName(monitoring));
+            Assert.Equal($"夹具占用\n最近采样 {DateTimeOffset.UnixEpoch.ToLocalTime():HH:mm:ss}", AutomationProperties.GetHelpText(monitoring));
         }
         var maa = Assert.IsType<ScriptCardViewModel>(cards[1].DataContext).Script;
         Assert.False(maa.ShowEmulatorAction);
