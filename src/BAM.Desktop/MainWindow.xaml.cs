@@ -67,6 +67,7 @@ public partial class MainWindow : FluentWindow
         Width = Math.Min(Width, width);
         Height = Math.Min(Height, height);
         _tray = new TrayIcon(Restore, OpenOverview, ExitFromTray, _shell.MonitoringStatus);
+        if (_live is not null) _live.BatchCompleted += ShowBatchResult;
 #if BAM_DEMO || BAM_VERIFICATION
         if (_captureDirectory is not null) _capture = new DemoCapture(this, Shell, _captureDirectory);
 #endif
@@ -123,6 +124,12 @@ public partial class MainWindow : FluentWindow
         Restore();
     }
 
+    private void ShowBatchResult(object? sender, BatchReport report)
+    {
+        var rows = string.Join(Environment.NewLine, report.Rows.Select(row => $"{row.Name} · {row.Status}"));
+        _tray?.ShowResult("BAM · 批量启动", $"{report.Summary}{Environment.NewLine}{rows}", report.NeedsAttention);
+    }
+
     internal void AllowSessionEnd() => _exitPrepared = true;
 
     private void ExitFromTray() => BeginExit();
@@ -163,6 +170,7 @@ public partial class MainWindow : FluentWindow
     protected override void OnClosed(EventArgs e)
     {
         _settings.PropertyChanged -= SettingsChanged;
+        if (_live is not null) _live.BatchCompleted -= ShowBatchResult;
         _windowSource?.RemoveHook(ShowKeyboardSystemMenu);
         _windowSource = null;
 #if BAM_DEMO || BAM_VERIFICATION

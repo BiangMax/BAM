@@ -9,6 +9,12 @@ internal sealed class BatchReport(IReadOnlyList<BatchLaunchResult> results)
     public string Summary { get; } = $"批量启动 · 已提交 {results.Count(row => row.Result.Status == CommandStatus.Accepted)}/{results.Count} 组";
     public IReadOnlyList<BatchReportRow> Rows { get; } = results.Select(result => new BatchReportRow(result)).ToArray();
 
+    /// <summary>有组未能确认或明确失败时，结果需要用户留意。</summary>
+    public bool NeedsAttention => Rows.Any(row => row.NeedsAttention);
+
+    /// <summary>所有组都已离开待确认阶段，可以给出结果。</summary>
+    public bool IsSettled => Rows.All(row => row.IsSettled);
+
     public void Refresh()
     {
         foreach (var row in Rows) row.Refresh();
@@ -19,6 +25,8 @@ internal sealed class BatchReportRow(BatchLaunchResult result) : ObservableObjec
 {
     private BatchLaunchState _state = result.State;
     public string Name => result.Program.Name;
+    public bool NeedsAttention => _state is BatchLaunchState.Unconfirmed or BatchLaunchState.Failed;
+    public bool IsSettled => _state is not BatchLaunchState.Pending;
     public string Status => _state switch
     {
         BatchLaunchState.Pending => "已提交待确认",

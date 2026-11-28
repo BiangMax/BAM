@@ -21,6 +21,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     private LaunchNotice? _launchNotice;
     private string? _discoveryIssue;
     private string? _installationReadIssue;
+    private bool _batchReported;
 #if BAM_VERIFICATION
     private ProgramEventBuffer? _verificationLogBuffer;
     private int _verificationLogCount;
@@ -42,6 +43,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
 #endif
 
     public event EventHandler? Updated;
+    /// <summary>一轮批量启动派发结束后触发，用作托盘结果提示。</summary>
+    public event EventHandler<BatchReport>? BatchCompleted;
     public bool IsDemo => false;
     public IReadOnlyList<ScriptItem> Scripts { get; private set; } = [];
     public IReadOnlyList<LogEntry> Logs { get; private set; } = [];
@@ -108,7 +111,8 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
     {
         if (_stop.IsCancellationRequested) return;
         Frame = frame;
-        LatestBatchResult?.Refresh();
+        var batch = LatestBatchResult;
+        batch?.Refresh();
         _installationReadIssue = readIssue;
         if (_launchNotice is { } pending && ResolveLaunchNotice(frame, pending.Program, pending.PreviousWorker,
             pending.PreviousFrame) is { } outcome)
@@ -124,6 +128,12 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
                 entry.Message, entry.Detail) { InstallationId = entry.InstallationId }).ToArray();
         }
         Updated?.Invoke(this, EventArgs.Empty);
+        // 各组状态确定后再提示一次，避免派发瞬间的「已提交待确认」被当成结果。
+        if (batch is { } settled && !_batchReported && settled.IsSettled)
+        {
+            _batchReported = true;
+            BatchCompleted?.Invoke(this, settled);
+        }
     }
 
     public Task DiscoverAsync() => Track(async token =>
@@ -182,6 +192,7 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         var results = await Task.Run(() => monitor.LaunchBatchAsync(requests, token), token);
         if (token.IsCancellationRequested) return;
         LatestBatchResult = new(results);
+        _batchReported = false;
         SetNotice(LatestBatchResult.Summary, details: "打开「批量结果」查看各组的启动状态及原因。");
     });
 
