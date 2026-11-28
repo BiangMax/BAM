@@ -1,5 +1,6 @@
 # Private inputs and third-party material belong in .local/.
 /.local/
+/.workbuddy/
 /third-party/
 config/
 installations.json
