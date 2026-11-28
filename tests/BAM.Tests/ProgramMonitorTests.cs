@@ -902,6 +902,49 @@ public sealed class ProgramMonitorTests
     }
 
     [Fact]
+    public async Task BatchWaitsTheConfiguredIntervalBeforeStartingTheNextGroup()
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch();
+        var pair = programs[0];
+        var maa = programs[1];
+        rig.Store.Programs = [maa, pair];
+        await rig.Monitor.InitializeAsync(Token);
+        var progress = new RecordingProgress();
+        var interval = TimeSpan.FromMinutes(2);
+        var batch = rig.Monitor.LaunchBatchAsync([(maa, maa.Entry), (pair, pair.Entry)], Token, interval, progress);
+
+        await rig.Clock.DelayScheduled.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        Assert.Equal(maa.Entry, Assert.Single(rig.Platform.Submitted));
+        rig.Clock.Tick(wallSeconds: 119, elapsedSeconds: 119);
+        Assert.Equal(maa.Entry, Assert.Single(rig.Platform.Submitted));
+
+        rig.Clock.Tick(elapsedSeconds: 1);
+        var rows = await batch.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        Assert.Equal([maa.Entry, pair.Emulator!.Entry, pair.Entry], rig.Platform.Submitted);
+        Assert.All(rows, row => Assert.Equal(CommandStatus.Accepted, row.Result.Status));
+        var observed = Assert.Single(progress.Items);
+        Assert.Equal((1, 2, maa.Name, pair.Name, interval),
+            (observed.Dispatched, observed.Total, observed.Name, observed.NextName, observed.Wait));
+    }
+
+    [Fact]
+    public async Task BatchSkipsTheIntervalWhenThePreviousGroupWasNotStarted()
+    {
+        using var rig = new Rig();
+        var programs = rig.SetStartupBatch();
+        var pair = programs[0];
+        var maa = programs[1];
+        rig.Store.Programs = [maa, pair];
+        rig.Platform.Workers = [MetricWorker(maa.WorkerPaths[0], 11, 12)];
+        await rig.Monitor.InitializeAsync(Token);
+        var rows = await rig.Monitor.LaunchBatchAsync([(maa, maa.Entry), (pair, pair.Entry)], Token,
+            TimeSpan.FromMinutes(2)).WaitAsync(TimeSpan.FromSeconds(5), Token);
+        Assert.Equal(BatchLaunchState.Skipped, rows[0].State);
+        Assert.Equal([pair.Emulator!.Entry, pair.Entry], rig.Platform.Submitted);
+    }
+
+    [Fact]
     public async Task AnEditedShortcutCannotDispatchItsScriptAfterTheEmulatorWait()
     {
         using var rig = new Rig();
@@ -1143,6 +1186,12 @@ public sealed class ProgramMonitorTests
             cpu is { } seconds ? TimeSpan.FromSeconds(seconds) : null, 2 * 1048576L, Window, true, true);
 
         public void Dispose() => Monitor.Dispose();
+    }
+
+    private sealed class RecordingProgress : IProgress<BatchLaunchProgress>
+    {
+        public List<BatchLaunchProgress> Items { get; } = [];
+        public void Report(BatchLaunchProgress value) => Items.Add(value);
     }
 
     private sealed class ManualClock : TimeProvider

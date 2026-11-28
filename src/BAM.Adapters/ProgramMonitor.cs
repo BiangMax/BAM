@@ -288,8 +288,11 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
         finally { _gate.Release(); }
     }
 
+    /// <summary>按给定顺序派发批量启动。<paramref name="interval"/> 为两组之间等待的时间，
+    /// 只有上一组确实提交成功才等待，避免对已运行或未提交的组白等。</summary>
     public async Task<IReadOnlyList<BatchLaunchResult>> LaunchBatchAsync(
-        IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests, CancellationToken cancellation)
+        IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests, CancellationToken cancellation,
+        TimeSpan interval = default, IProgress<BatchLaunchProgress>? progress = null)
     {
         if (Interlocked.Exchange(ref _batchActive, 1) != 0)
             throw new InvalidOperationException("批量启动正在进行。");
@@ -300,8 +303,9 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                 .GroupBy(request => LauncherKey(request.Program.Emulator!.Entry))
                 .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet();
             var results = new List<BatchLaunchResult>(entries.Length);
-            foreach (var (program, entry) in entries)
+            for (var index = 0; index < entries.Length; index++)
             {
+                var (program, entry) = entries[index];
                 cancellation.ThrowIfCancellationRequested();
                 var row = new BatchLaunchResult(program, entry);
                 if (program.SupportsEmulatorStartup && program.Emulator?.Entry is { } launcher && duplicates.Contains(LauncherKey(launcher)))
@@ -316,6 +320,11 @@ public sealed class ProgramMonitor(InstallationCatalog catalog, IProgramPlatform
                     }
                 }
                 results.Add(row);
+                if (index < entries.Length - 1 && interval > TimeSpan.Zero && row.Result.Status == CommandStatus.Accepted)
+                {
+                    progress?.Report(new(index + 1, entries.Length, program.Name, entries[index + 1].Program.Name, interval));
+                    await Task.Delay(interval, clock, cancellation).ConfigureAwait(false);
+                }
             }
             return results;
         }

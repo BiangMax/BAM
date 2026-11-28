@@ -80,6 +80,34 @@
                 <Border Style="{StaticResource Bam.SettingsPanel}">
                     <StackPanel>
                         <DockPanel Margin="{StaticResource Bam.After.Medium}">
+                            <ui:SymbolIcon Symbol="Clock24" Foreground="{DynamicResource Bam.PrimaryLight}" Margin="{StaticResource Bam.Gap.Right}"/>
+                            <TextBlock Text="批量启动" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
+                        </DockPanel>
+                        <Border Style="{StaticResource Bam.SettingsRow}" Padding="0,8,0,0">
+                            <DockPanel>
+                                <ComboBox DockPanel.Dock="Right" Width="142" Style="{StaticResource Bam.Combo}"
+                                          ItemsSource="{Binding BatchIntervalOptions}" SelectedValuePath="Seconds" DisplayMemberPath="Label"
+                                          SelectedValue="{Binding BatchIntervalSeconds}" AutomationProperties.Name="批量启动间隔"
+                                          AutomationProperties.AutomationId="BatchInterval" VerticalAlignment="Center">
+                                    <ComboBox.ItemContainerStyle>
+                                        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource DefaultComboBoxItemStyle}">
+                                            <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+                                        </Style>
+                                    </ComboBox.ItemContainerStyle>
+                                </ComboBox>
+                                <StackPanel>
+                                    <TextBlock Text="每组启动间隔" Style="{StaticResource Bam.Value}" Margin="{StaticResource Bam.After.Small}"/>
+                                    <TextBlock Text="批量启动按卡片顺序执行。前一组提交后等待这段时间再启动下一组，给前一组留出连接模拟器的时间。"
+                                               Style="{StaticResource Bam.Caption}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Bam.SettingsPanel}">
+                    <StackPanel>
+                        <DockPanel Margin="{StaticResource Bam.After.Medium}">
                             <ui:SymbolIcon Symbol="Window24" Foreground="{DynamicResource Bam.PrimaryLight}" Margin="{StaticResource Bam.Gap.Right}"/>
                             <TextBlock Text="系统托盘" Style="{StaticResource Bam.SectionTitle}" AutomationProperties.HeadingLevel="Level2"/>
                         </DockPanel>

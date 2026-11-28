@@ -51,5 +51,19 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(future, await File.ReadAllTextAsync(SettingsFile, Cancellation));
     }
 
+    [Fact]
+    public async Task BatchIntervalRoundTripsAndIsClampedOnRead()
+    {
+        var store = new SettingsStore(false, SettingsFile);
+        Assert.Null(await store.QueueSave(new DesktopPreferences(BatchIntervalSeconds: 120)));
+        Assert.Equal(120, (await store.LoadAsync(Cancellation)).Preferences.BatchIntervalSeconds);
+
+        await File.WriteAllTextAsync(SettingsFile, """{"SchemaVersion":1,"BatchIntervalSeconds":99999}""", Cancellation);
+        Assert.Equal(SettingsStore.MaxBatchIntervalSeconds, (await store.LoadAsync(Cancellation)).Preferences.BatchIntervalSeconds);
+
+        await File.WriteAllTextAsync(SettingsFile, """{"SchemaVersion":1,"BatchIntervalSeconds":-30}""", Cancellation);
+        Assert.Equal(0, (await store.LoadAsync(Cancellation)).Preferences.BatchIntervalSeconds);
+    }
+
     public void Dispose() => _directory.Delete(recursive: true);
 }

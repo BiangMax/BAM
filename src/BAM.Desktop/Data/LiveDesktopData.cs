@@ -186,15 +186,37 @@ internal sealed class LiveDesktopData(ProgramMonitor monitor, InstallationCatalo
         SetNotice($"{script.Name} · {result.Reason ?? "操作结果未知。"}");
     });
 
-    public Task LaunchBatchAsync(IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests) => Track(async token =>
+    public Task LaunchBatchAsync(IReadOnlyList<(ProgramInstallation Program, LaunchEntry Entry)> requests, TimeSpan interval) => Track(async token =>
     {
-        SetNotice($"正在依次处理 {requests.Count} 组启动请求…");
-        var results = await Task.Run(() => monitor.LaunchBatchAsync(requests, token), token);
-        if (token.IsCancellationRequested) return;
-        LatestBatchResult = new(results);
-        _batchReported = false;
-        SetNotice(LatestBatchResult.Summary, details: "打开「批量结果」查看各组的启动状态及原因。");
+        if (interval > TimeSpan.Zero)
+            SetNotice($"正在依次启动 {requests.Count} 组，每组之间等待 {DescribeInterval(interval)}…");
+        else SetNotice($"正在依次处理 {requests.Count} 组启动请求…");
+        IsBatchRunning = true;
+        Updated?.Invoke(this, EventArgs.Empty);
+        try
+        {
+            var progress = new Progress<BatchLaunchProgress>(item =>
+                SetNotice($"{item.Name} 已派发（{item.Dispatched}/{item.Total} 组）· " +
+                    $"{DescribeInterval(item.Wait)}后启动 {item.NextName}"));
+            var results = await Task.Run(() => monitor.LaunchBatchAsync(requests, token, interval, progress), token);
+            if (token.IsCancellationRequested) return;
+            LatestBatchResult = new(results);
+            _batchReported = false;
+            SetNotice(LatestBatchResult.Summary, details: "打开「批量结果」查看各组的启动状态及原因。");
+        }
+        finally
+        {
+            IsBatchRunning = false;
+            Updated?.Invoke(this, EventArgs.Empty);
+        }
     });
+
+    /// <summary>一轮批量启动正在进行（含组间等待）。</summary>
+    public bool IsBatchRunning { get; private set; }
+
+    private static string DescribeInterval(TimeSpan interval) => interval.TotalSeconds >= 60 && interval.TotalSeconds % 60 == 0
+        ? $"{interval.TotalMinutes:0} 分钟"
+        : $"{interval.TotalSeconds:0} 秒";
 
     public async Task<string?> CloseBatchAsync(IReadOnlyList<(ScriptItem Script, EmulatorCloseTarget? Emulator)> requests)
     {

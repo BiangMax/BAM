@@ -10,6 +10,11 @@ internal sealed record ThemeOption(ThemeChoice Value, string Label)
     public override string ToString() => Label;
 }
 
+internal sealed record BatchIntervalOption(int Seconds, string Label)
+{
+    public override string ToString() => Label;
+}
+
 internal sealed partial class SettingsViewModel : ObservableObject
 {
     private const string Repository = "https://github.com/BiangMax/BAM";
@@ -22,6 +27,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _reduceMotion;
     [ObservableProperty] private bool _closeToTray;
     [ObservableProperty] private bool _collectResources;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(BatchIntervalLabel))] private int _batchIntervalSeconds;
     [ObservableProperty] private string? _notice;
     [ObservableProperty] private string? _linkNotice;
 
@@ -35,6 +41,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
         _reduceMotion = preferences.ReduceMotion;
         _closeToTray = preferences.CloseToTray;
         _collectResources = preferences.CollectResources;
+        _batchIntervalSeconds = NearestInterval(preferences.BatchIntervalSeconds);
         CanCollectResources = canCollectResources;
         Elevated = elevated;
         _trayIntroSeen = preferences.TrayIntroSeen;
@@ -42,6 +49,16 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<ThemeOption> ThemeOptions { get; } =
         [new(ThemeChoice.Dark, "深色"), new(ThemeChoice.Light, "浅色"), new(ThemeChoice.System, "跟随系统")];
+
+    public IReadOnlyList<BatchIntervalOption> BatchIntervalOptions { get; } =
+        [new(0, "不等待"), new(30, "30 秒"), new(60, "1 分钟"), new(90, "1 分 30 秒"),
+            new(120, "2 分钟"), new(180, "3 分钟"), new(300, "5 分钟"), new(600, "10 分钟")];
+
+    public string BatchIntervalLabel =>
+        BatchIntervalOptions.FirstOrDefault(option => option.Seconds == BatchIntervalSeconds)?.Label ?? $"{BatchIntervalSeconds} 秒";
+
+    private int NearestInterval(int seconds) =>
+        BatchIntervalOptions.MinBy(option => Math.Abs(option.Seconds - Math.Clamp(seconds, 0, SettingsStore.MaxBatchIntervalSeconds)))!.Seconds;
 
     public string VersionLabel => $"BAM {ShellViewModel.Version}";
     public bool CanCollectResources { get; }
@@ -60,8 +77,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
     partial void OnReduceMotionChanged(bool value) => Save();
     partial void OnCloseToTrayChanged(bool value) => Save();
     partial void OnCollectResourcesChanged(bool value) => Save();
+    partial void OnBatchIntervalSecondsChanged(int value) => Save();
 
-    private void Save() => _ = SaveAsync(++_saveRevision, new(1, Theme, ReduceMotion, CloseToTray, _trayIntroSeen, CollectResources));
+    private void Save() => _ = SaveAsync(++_saveRevision,
+        new(1, Theme, ReduceMotion, CloseToTray, _trayIntroSeen, CollectResources, BatchIntervalSeconds));
 
     private async Task SaveAsync(int revision, DesktopPreferences settings)
     {

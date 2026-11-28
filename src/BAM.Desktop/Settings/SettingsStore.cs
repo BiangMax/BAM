@@ -7,10 +7,14 @@ internal enum ThemeChoice { Dark, Light, System }
 
 internal sealed record DesktopPreferences(
     int SchemaVersion = 1, ThemeChoice Theme = ThemeChoice.Dark, bool ReduceMotion = false,
-    bool CloseToTray = false, bool TrayIntroSeen = false, bool CollectResources = true);
+    bool CloseToTray = false, bool TrayIntroSeen = false, bool CollectResources = true,
+    int BatchIntervalSeconds = 0);
 
 internal sealed class SettingsStore(bool isDemo, string? file = null, bool sessionOnly = false)
 {
+    /// <summary>批量启动间隔上限。超过此值的配置按上限处理，避免误填后长时间无响应。</summary>
+    public const int MaxBatchIntervalSeconds = 1800;
+
     private readonly string _file = file ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM", "settings.json");
     private bool _canWrite = true;
@@ -60,7 +64,7 @@ internal sealed class SettingsStore(bool isDemo, string? file = null, bool sessi
         var settings = await JsonSerializer.DeserializeAsync<DesktopPreferences>(stream, cancellationToken: cancellationToken);
         if (settings is null || !Enum.IsDefined(settings.Theme)) throw new JsonException();
         if (settings.SchemaVersion != 1) throw new NotSupportedException();
-        return settings;
+        return settings with { BatchIntervalSeconds = Math.Clamp(settings.BatchIntervalSeconds, 0, MaxBatchIntervalSeconds) };
     }
 
     private async Task<string?> SaveAfterAsync(Task previous, DesktopPreferences settings)

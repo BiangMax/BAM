@@ -4,6 +4,9 @@ namespace BAM.Adapters;
 
 public enum BatchLaunchState { Pending, Running, Unconfirmed, Failed, Skipped }
 
+/// <summary>批量启动进度：一组已派发，正在等待下一组。</summary>
+public sealed record BatchLaunchProgress(int Dispatched, int Total, string Name, string NextName, TimeSpan Wait);
+
 public sealed class BatchLaunchResult
 {
     private volatile BatchLaunchState _observation = BatchLaunchState.Pending;

@@ -20,6 +20,7 @@ internal sealed partial class ShellViewModel : ObservableObject
     private readonly LogsViewModel _logs;
     private readonly LiveDesktopData? _live;
     private readonly SettingsViewModel _settings;
+    private bool _batchRunning;
 
     public ShellViewModel(IDesktopData data, DashboardViewModel dashboard, ScriptsViewModel scripts,
         LogsViewModel logs, SettingsViewModel settings)
@@ -35,6 +36,7 @@ internal sealed partial class ShellViewModel : ObservableObject
             OnPropertyChanged(nameof(OperationNotice));
             OnPropertyChanged(nameof(OperationNoticeDetails));
             LatestBatchResult = _live.LatestBatchResult;
+            _batchRunning = _live.IsBatchRunning;
             LaunchPairedCommand.NotifyCanExecuteChanged();
             CloseBatchCommand.NotifyCanExecuteChanged();
             MoveScriptUpCommand.NotifyCanExecuteChanged();
@@ -129,7 +131,7 @@ internal sealed partial class ShellViewModel : ObservableObject
         editor.ShowDialog();
     }
 
-    private bool CanLaunchPaired() => _live is not null && _dashboard.Cards.Any(card => card.Script.CanStartInBatch);
+    private bool CanLaunchPaired() => !_batchRunning && _live is not null && _dashboard.Cards.Any(card => card.Script.CanStartInBatch);
 
     [RelayCommand(CanExecute = nameof(CanLaunchPaired))]
     private async Task LaunchPaired()
@@ -139,15 +141,19 @@ internal sealed partial class ShellViewModel : ObservableObject
             .Select(script => (Program: script.Installation!, Entry: script.EffectiveEntry!)).ToArray();
         if (requests.Length == 0) return;
 
+        var interval = TimeSpan.FromSeconds(_settings.BatchIntervalSeconds);
         var details = string.Join("\n\n", requests.Select(request => request.Program.Kind == ProgramKind.Maa
             ? $"{request.Program.Name} · 由 MAA 按原设置启动模拟器\n" + DescribeLaunch("软件", request.Entry)
             : $"{request.Program.Name} · 等待 {request.Program.Emulator!.WaitSeconds} 秒\n" +
               DescribeLaunch("模拟器", request.Program.Emulator.Entry) + "\n" + DescribeLaunch("软件", request.Entry)));
         const string label = "批量启动";
-        if (await Confirm(label, $"按总览卡片顺序启动以下 {requests.Length} 组。配对组先开模拟器，再开软件。" +
-            $"软件可能按自己的设置自动运行任务。\n{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
+        var pacing = interval > TimeSpan.Zero
+            ? $"每组的启动请求提交后等待 {_settings.BatchIntervalLabel}，再启动下一组。"
+            : "各组紧接着启动，不等待。";
+        if (await Confirm(label, $"按总览卡片顺序启动以下 {requests.Length} 组。{pacing}" +
+            $"配对组先开模拟器，再开软件。软件可能按自己的设置自动运行任务。\n{PermissionLabel}。Windows 会按目标处理权限请求。\n\n{details}",
             label, scrollable: true))
-            await _live.LaunchBatchAsync(requests);
+            await _live.LaunchBatchAsync(requests, interval);
     }
 
     private static string DescribeLaunch(string label, LaunchEntry entry) =>
