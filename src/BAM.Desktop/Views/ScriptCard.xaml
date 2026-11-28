@@ -160,6 +160,19 @@
                                               Command="{Binding PlacementTarget.Tag.OpenScriptLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     <Separator/>
+                                    <MenuItem Header="上移"
+                                              ToolTip="调整卡片位置。批量启动按卡片顺序执行。"
+                                              ToolTipService.ShowOnDisabled="True"
+                                              AutomationProperties.AutomationId="ScriptMoveUp"
+                                              Command="{Binding PlacementTarget.Tag.MoveScriptUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <MenuItem Header="下移"
+                                              ToolTip="调整卡片位置。批量启动按卡片顺序执行。"
+                                              ToolTipService.ShowOnDisabled="True"
+                                              AutomationProperties.AutomationId="ScriptMoveDown"
+                                              Command="{Binding PlacementTarget.Tag.MoveScriptDownCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <Separator/>
                                     <MenuItem Header="正常关闭" IsEnabled="{Binding PlacementTarget.DataContext.Script.CanClose, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               Command="{Binding PlacementTarget.Tag.CloseScriptCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                               CommandParameter="{Binding PlacementTarget.DataContext.Script, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>

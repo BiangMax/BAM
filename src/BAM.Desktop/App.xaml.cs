@@ -15,6 +15,7 @@ public partial class App : Application
     private SingleInstance? _instance;
     private ServiceProvider? _services;
     private SettingsStore? _settingsStore;
+    private ScriptOrderStore? _orderStore;
     private LiveDesktopData? _live;
     private Task? _drain;
     private readonly CancellationTokenSource _lifetime = new();
@@ -69,12 +70,18 @@ public partial class App : Application
         var profile = verificationProfile ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BAM");
         var sessionOnly = elevated != false;
         _settingsStore = new SettingsStore(demo is not null, Path.Combine(profile, "settings.json"), sessionOnly);
+        _orderStore = new ScriptOrderStore(Path.Combine(profile, "script-order.json"), sessionOnly || demo is not null);
         var cancellation = _lifetime.Token;
         DesktopPreferences preferences;
         string? notice;
         try { (preferences, notice) = await _settingsStore.LoadAsync(cancellation); }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         if (cancellation.IsCancellationRequested) return;
+        IReadOnlyList<Guid> order;
+        try { order = demo is not null ? [] : await _orderStore.LoadAsync(cancellation); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        if (cancellation.IsCancellationRequested) return;
+        var scriptOrder = new ScriptOrder(_orderStore, order);
 
         var services = new ServiceCollection();
         if (demo is not null) services.AddSingleton(demo);
@@ -97,6 +104,7 @@ public partial class App : Application
         if (demo is null && sessionOnly)
             notice = string.Join(" ", new[] { notice, "当前权限下，设置、安装修改和新增日志仅保留在本次会话。" }
                 .Where(value => value is not null));
+        services.AddSingleton(scriptOrder);
         services.AddSingleton(new SettingsViewModel(_settingsStore, preferences, notice, demo is null, elevated));
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<ScriptsViewModel>();
@@ -147,7 +155,8 @@ public partial class App : Application
     {
         _lifetime.Cancel();
         return _drain ??= Task.WhenAll(_live?.StopAsync() ?? Task.CompletedTask,
-            _settingsStore?.FlushAsync() ?? Task.CompletedTask);
+            _settingsStore?.FlushAsync() ?? Task.CompletedTask,
+            _orderStore?.FlushAsync() ?? Task.CompletedTask);
     }
 
     private Task PrepareExitAsync() => WaitForShutdownAsync(DrainAsync(), TimeSpan.FromSeconds(3));

@@ -37,6 +37,8 @@ internal sealed partial class ShellViewModel : ObservableObject
             LatestBatchResult = _live.LatestBatchResult;
             LaunchPairedCommand.NotifyCanExecuteChanged();
             CloseBatchCommand.NotifyCanExecuteChanged();
+            MoveScriptUpCommand.NotifyCanExecuteChanged();
+            MoveScriptDownCommand.NotifyCanExecuteChanged();
         };
         _settings.PropertyChanged += OnSettingsChanged;
         _logs.PropertyChanged += OnLogsChanged;
@@ -188,6 +190,22 @@ internal sealed partial class ShellViewModel : ObservableObject
     {
         if (LatestBatchResult is not { } report) return;
         new BatchResultWindow { DataContext = report, Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+    }
+
+    private bool CanMoveScriptUp(ScriptItem? script) => _dashboard.CanMove(script, -1);
+    private bool CanMoveScriptDown(ScriptItem? script) => _dashboard.CanMove(script, 1);
+
+    [RelayCommand(CanExecute = nameof(CanMoveScriptUp))]
+    private void MoveScriptUp(ScriptItem? script) => MoveScript(script, -1);
+
+    [RelayCommand(CanExecute = nameof(CanMoveScriptDown))]
+    private void MoveScriptDown(ScriptItem? script) => MoveScript(script, 1);
+
+    private void MoveScript(ScriptItem? script, int offset)
+    {
+        if (!_dashboard.Move(script, offset)) return;
+        MoveScriptUpCommand.NotifyCanExecuteChanged();
+        MoveScriptDownCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]

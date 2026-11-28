@@ -1,5 +1,6 @@
 using BAM.Core;
 using BAM.Desktop.Data;
+using BAM.Desktop.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Wpf.Ui.Controls;
 
@@ -8,6 +9,7 @@ namespace BAM.Desktop.ViewModels;
 internal sealed partial class DashboardViewModel : ObservableObject
 {
     private readonly IDesktopData _data;
+    private readonly ScriptOrder? _order;
     private DateTimeOffset? _lastSample;
     private ProgramFrame? _lastFrame;
 
@@ -22,11 +24,12 @@ internal sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string _memory = "—";
     [ObservableProperty] private string _chartDetail = "暂无资源样本";
 
-    public DashboardViewModel(IDesktopData data)
+    public DashboardViewModel(IDesktopData data, ScriptOrder? order = null)
     {
         _data = data;
+        _order = order;
         _isDetecting = data is LiveDesktopData { Frame: null, DetectionIssue: null };
-        Cards = data.Scripts.OrderBy(CardPriority).Select(script => new ScriptCardViewModel(script)).ToArray();
+        Cards = Arrange(data.Scripts.Select(script => new ScriptCardViewModel(script)));
         RecentEvents = data.Logs.Take(3).ToArray();
         SampleLabel = data.HasResourceSource ? "等待采样" : "暂无采样";
         ChartDetail = data.HasResourceSource ? "等待资源样本" : "接入进程采样后可查看资源曲线";
@@ -97,6 +100,58 @@ internal sealed partial class DashboardViewModel : ObservableObject
 
     partial void OnShowMemoryChanged(bool value) => OnPropertyChanged(nameof(ShowCpu));
 
+    /// <summary>是否可以把这张卡片向指定方向移动一格。批量启动按卡片顺序执行。</summary>
+    public bool CanMove(ScriptItem? script, int offset)
+    {
+        if (script?.Installation is not { } program) return false;
+        var from = IndexOf(program.Id);
+        var to = from + offset;
+        return from >= 0 && to >= 0 && to < Cards.Count;
+    }
+
+    /// <summary>交换相邻两张卡片并保存顺序。返回是否实际移动。</summary>
+    public bool Move(ScriptItem? script, int offset)
+    {
+        if (script?.Installation is not { } program) return false;
+        var items = Cards.ToList();
+        var from = items.FindIndex(card => card.Script.Installation?.Id == program.Id);
+        var to = from + offset;
+        if (from < 0 || to < 0 || to >= items.Count) return false;
+        (items[from], items[to]) = (items[to], items[from]);
+        Cards = items.ToArray();
+        Persist();
+        OnPropertyChanged(nameof(Cards));
+        return true;
+    }
+
+    private int IndexOf(Guid id)
+    {
+        for (var index = 0; index < Cards.Count; index++)
+            if (Cards[index].Script.Installation?.Id == id) return index;
+        return -1;
+    }
+
+    private void Persist()
+    {
+        if (_order is null) return;
+        var ids = Cards.Select(card => card.Script.Installation?.Id).OfType<Guid>().ToArray();
+        _order.Ids = ids;
+        _ = _order.Store.QueueSave(ids);
+    }
+
+    // 已保存的顺序优先；没有记录的安装按默认类型顺序排在后面，同类型之间保持稳定。
+    private ScriptCardViewModel[] Arrange(IEnumerable<ScriptCardViewModel> cards)
+    {
+        var positions = new Dictionary<Guid, int>();
+        if (_order is { } order)
+            for (var index = 0; index < order.Ids.Count; index++) positions.TryAdd(order.Ids[index], index);
+        return cards
+            .OrderBy(card => card.Script.Installation is { } program && positions.TryGetValue(program.Id, out var position)
+                ? position : int.MaxValue)
+            .ThenBy(card => CardPriority(card.Script))
+            .ToArray();
+    }
+
     private static int CardPriority(ScriptItem script) => script.Installation?.Kind switch
     {
         ProgramKind.Maa => 0,
@@ -117,16 +172,17 @@ internal sealed partial class DashboardViewModel : ObservableObject
         _lastFrame = frame;
         var cards = Cards.ToDictionary(card => card.Script.Installation!.Id);
         var next = new List<ScriptCardViewModel>();
-        foreach (var (item, status) in live.Scripts.Zip(frame.Programs).OrderBy(pair => CardPriority(pair.First)))
+        foreach (var (item, status) in live.Scripts.Zip(frame.Programs))
         {
             if (!cards.TryGetValue(item.Installation!.Id, out var card)) card = new(item);
             card.Script = item;
             card.Update(new(status.Cpu, status.PrivateWorkingSetMiB, status.Uptime));
             next.Add(card);
         }
-        if (!Cards.SequenceEqual(next))
+        var arranged = Arrange(next);
+        if (!Cards.SequenceEqual(arranged))
         {
-            Cards = next;
+            Cards = arranged;
             OnPropertyChanged(nameof(Cards));
             OnPropertyChanged(nameof(HasScripts));
         }
